@@ -6,27 +6,15 @@
 }
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --primary: #6366f1;
-  --secondary: #0ea5e9;
-  --accent: #f59e0b;
-  --sidebar: #1e293b;
-  --card: rgba(255, 255, 255, 0.8);
-  --card-foreground: #0f172a;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #f8fafc;
-    --primary: #818cf8;
-    --secondary: #38bdf8;
-    --accent: #fbbf24;
-    --sidebar: #0f172a;
-    --card: rgba(30, 41, 59, 0.7);
-    --card-foreground: #f8fafc;
-  }
+  --background: #020617;
+  --foreground: #f8fafc;
+  --primary: #818cf8;
+  --secondary: #38bdf8;
+  --accent: #fbbf24;
+  --sidebar: #0f172a;
+  --card: rgba(15, 23, 42, 0.6);
+  --card-foreground: #f8fafc;
+  --border: rgba(255, 255, 255, 0.08);
 }
 
 body {
@@ -37,9 +25,10 @@ body {
 
 .glass {
   background: var(--card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* Leaflet maps need explicit height */
