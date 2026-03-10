@@ -20,4 +20,5 @@ export interface MapMarker {
     label: string;
     phone?: string;
     radius?: number;
+    type?: 'device' | 'antenna';
 }

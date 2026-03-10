@@ -67,12 +67,19 @@ export async function POST(req: NextRequest) {
             controlData.push({
                 'Núm. prog.': numProg,
                 'folio': folio || '',
+                'Teléfono': phone || '',
                 'Fecha consulta': date,
                 'Realizó la consulta': author,
                 'Compañía': company,
                 'Tipo de consulta': type,
                 'Area solicitante': area,
                 'Resultado\r\n(POS / NEG)': result,
+                'Latitud': body.lat || '',
+                'Longitud': body.lng || '',
+                'Antenna Lat': body.antennaLat || '',
+                'Antenna Lng': body.antennaLng || '',
+                'Radio': body.radius || '',
+                'Sector JSON': body.antennaSector ? JSON.stringify(body.antennaSector) : '',
                 'Ubicación Archivo': filePath
             });
 
@@ -116,6 +123,39 @@ export async function POST(req: NextRequest) {
             const newWs = xlsx.utils.aoa_to_sheet(finalData);
             wb.Sheets[sheetName] = newWs;
             xlsx.writeFile(wb, reportPath);
+        }
+
+        // 5. DB Persistence (Real Database)
+        if (type === 'GEO' && phone) {
+            try {
+                const { prisma } = await import('@/lib/prisma');
+                // Ensure device exists
+                const device = await prisma.device.upsert({
+                    where: { phone: String(phone) },
+                    update: {},
+                    create: { phone: String(phone) },
+                });
+
+                // Save location
+                await prisma.location.create({
+                    data: {
+                        deviceId: device.id,
+                        lat: parseFloat(body.lat) || 0,
+                        lng: parseFloat(body.lng) || 0,
+                        antennaLat: body.antennaLat ? parseFloat(body.antennaLat) : null,
+                        antennaLng: body.antennaLng ? parseFloat(body.antennaLng) : null,
+                        radius: body.radius ? parseFloat(body.radius) : null,
+                        address: body.area || 'Búsqueda de geolocalización',
+                        date: date,
+                        timestamp: body.timestamp ? BigInt(body.timestamp) : null,
+                        antennaSector: body.antennaSector ? JSON.stringify(body.antennaSector) : null,
+                    }
+                });
+                console.log(`[DB] Saved historical point for ${phone}`);
+            } catch (dbError) {
+                console.error('[DB] Failed to save history to database:', dbError);
+                // We don't fail the whole request if DB fails, but we log it
+            }
         }
 
         return NextResponse.json({
