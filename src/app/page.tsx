@@ -15,13 +15,32 @@ import {
   Radio,
   Loader2,
   Crosshair,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  Download,
+  X
 } from 'lucide-react';
 import { MapMarker } from '@/types/map';
 import Sidebar from '@/components/Sidebar';
 import ControlModal from '@/components/ControlModal';
 import DataTable from '@/components/DataTable';
 import FileUpload from '@/components/Upload';
+import Timeline from '@/components/Timeline';
+
+function parseDate(raw: string): { date: string; time: string; timestamp: number } {
+  if (!raw) return { date: '—', time: '', timestamp: 0 };
+  let d = new Date(raw);
+  if (isNaN(d.getTime())) {
+    const m = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[\s,]+(\d{1,2}):(\d{2})/);
+    if (m) d = new Date(`${m[2]}/${m[1]}/${m[3]} ${m[4]}:${m[5]}`);
+  }
+  if (isNaN(d.getTime())) return { date: raw.split(/[\s,]+/)[0] || raw, time: '', timestamp: 0 };
+  return {
+    date: d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    time: d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    timestamp: d.getTime()
+  };
+}
 
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -35,9 +54,11 @@ export default function Dashboard() {
   const [excelData, setExcelData] = useState<any[]>([]);
   const [excelCols, setExcelCols] = useState<string[]>([]);
   const [history, setHistory] = useState<Record<string, any[]>>({});
+  const [providers, setProviders] = useState<Record<string, string | null>>({});
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>([19.4326, -99.1332]);
   const [viewedPoint, setViewedPoint] = useState<[number, number] | null>(null);
+  const [activeTimelineIndex, setActiveTimelineIndex] = useState(0);
 
   const [showTowers, setShowTowers] = useState(false);
   const [towerMarkers, setTowerMarkers] = useState<MapMarker[]>([]);
@@ -53,8 +74,10 @@ export default function Dashboard() {
   // Stable string key from viewedPoint to use in useEffect deps (avoids array-size-change error)
   const viewedKey = viewedPoint ? `${viewedPoint[0]},${viewedPoint[1]}` : 'null';
 
-  // Derived center for map view
-  const center = viewedPoint || (selectedPhone && history[selectedPhone] && history[selectedPhone].length > 0 ? [history[selectedPhone][0].lat, history[selectedPhone][0].lng] : mapCenter) as [number, number];
+  // Derived center for map view - STABILIZED to avoid object-identity changes causing loops
+  const center = useMemo(() => {
+    return (viewedPoint || (selectedPhone && history[selectedPhone] && history[selectedPhone].length > 0 ? [history[selectedPhone][0].lat, history[selectedPhone][0].lng] : mapCenter)) as [number, number];
+  }, [viewedPoint, selectedPhone, history, mapCenter]);
 
   // Load persistent history on mount
   useEffect(() => {
@@ -64,6 +87,7 @@ export default function Dashboard() {
         const result = await res.json();
         if (result.success && result.history) {
           setHistory(result.history);
+          if (result.providers) setProviders(result.providers);
         }
       } catch (e) {
         console.error('Failed to load history:', e);
@@ -71,6 +95,14 @@ export default function Dashboard() {
     }
     loadHistory();
   }, []);
+
+  // Helper to normalize phone numbers for lookup
+  const normalizePhone = (p: string) => {
+    const clean = (p || '').replace(/\D/g, '');
+    if (clean.length > 10 && clean.startsWith('52')) return clean.substring(2);
+    if (clean.length > 10 && clean.startsWith('044')) return clean.substring(3);
+    return clean;
+  };
 
   // Haversine distance helper
   const haversineDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -82,23 +114,39 @@ export default function Dashboard() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
+  // Stable string key from center to avoid object comparison issues
+  const centerKey = `${center[0].toFixed(5)},${center[1].toFixed(5)}`;
+
   // Compute nearest source antenna whenever towers or company changes
   useEffect(() => {
-    if (!geoCompany || towerMarkers.length === 0) { setSourceAntennaCenter(null); return; }
-    const ref = center;
+    if (!geoCompany || towerMarkers.length === 0) { 
+      if (sourceAntennaCenter) setSourceAntennaCenter(null);
+      return; 
+    }
+    const searchCompany = geoCompany.toUpperCase();
+    
     const matching = towerMarkers.filter(t => {
-      const tc = (t as any).company as string | undefined;
-      return tc && (tc.includes(geoCompany) || geoCompany.includes(tc)) &&
-        haversineDist(ref[0], ref[1], t.lat, t.lng) <= 1000;
+      const tc = ((t as any).company || '').toUpperCase();
+      return tc && (tc.includes(searchCompany) || searchCompany.includes(tc)) &&
+        haversineDist(center[0], center[1], t.lat, t.lng) <= 1200;
     });
-    if (matching.length === 0) { setSourceAntennaCenter(null); return; }
+    
+    if (matching.length === 0) { 
+      if (sourceAntennaCenter) setSourceAntennaCenter(null);
+      return; 
+    }
+
     // Pick the closest one
     const closest = matching.reduce((best, t) =>
-      haversineDist(ref[0], ref[1], t.lat, t.lng) < haversineDist(ref[0], ref[1], best.lat, best.lng) ? t : best
+      haversineDist(center[0], center[1], t.lat, t.lng) < haversineDist(center[0], center[1], best.lat, best.lng) ? t : best
     );
-    setSourceAntennaCenter([closest.lat, closest.lng]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [towerMarkers, geoCompany]);
+
+    // Only update if the distance change is significant (> 1 meter) or if it's first time
+    const currentDist = sourceAntennaCenter ? haversineDist(sourceAntennaCenter[0], sourceAntennaCenter[1], closest.lat, closest.lng) : 999;
+    if (currentDist > 1) {
+      setSourceAntennaCenter([closest.lat, closest.lng]);
+    }
+  }, [towerMarkers, geoCompany, centerKey]); // sourceAntennaCenter removed from deps to prevent closure feedback loops
 
   // Fetch REAL Towers from OpenCellID — stable deps, no array-size-change
   useEffect(() => {
@@ -116,7 +164,7 @@ export default function Dashboard() {
 
       if (viewedPoint) {
         [lat, lng] = viewedPoint;
-      } else if (selectedPhone && history[selectedPhone]) {
+      } else if (selectedPhone && history[selectedPhone] && history[selectedPhone].length > 0) {
         lat = history[selectedPhone][0].lat;
         lng = history[selectedPhone][0].lng;
       } else {
@@ -140,7 +188,7 @@ export default function Dashboard() {
     fetchRealTowers();
     return () => { isMounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTowers, selectedPhone, viewedKey, mapCenter[0], mapCenter[1]]);
+  }, [showTowers, selectedPhone, viewedKey, centerKey]);
 
   // Force-refresh towers bypassing the 30-min cache
   const refreshTowers = async () => {
@@ -161,15 +209,19 @@ export default function Dashboard() {
   const markers = useMemo(() => {
     let allMarkers: MapMarker[] = [];
 
+    // When showing all history points for a phone, skip the regular per-device summary markers
+    if (showAll && selectedPhone) return allMarkers;
+
     Object.keys(history).forEach(phone => {
-      const lastPoint = history[phone][0];
+      const lastPoint = history[phone] && history[phone].length > 0 ? history[phone][0] : null;
+      if (!lastPoint) return;
+
       allMarkers.push({
         id: `dev-${phone}`,
         lat: lastPoint.lat,
         lng: lastPoint.lng,
         label: `Objetivo: ${phone}`,
         phone: phone,
-        // Use real PDF radius if available, else 50m default
         radius: lastPoint.radius || 50,
         type: 'device'
       });
@@ -223,22 +275,41 @@ export default function Dashboard() {
 
   // All-points markers: shown when showAll mode is active — every history point for the phone
   const allPointsMarkers = useMemo((): MapMarker[] => {
-    if (!showAll || !selectedPhone || !history[selectedPhone]) return [];
-    return history[selectedPhone].map((point, idx) => ({
-      id: `all-${idx}`,
-      lat: point.lat,
-      lng: point.lng,
-      label: point.date || `Punto ${idx + 1}`,
-      radius: point.radius || 80,
-      type: 'device' as const,
-    }));
+    if (!showAll || !selectedPhone) return [];
+
+    // Try exact key first, then fuzzy match (strip non-digits and compare last 10)
+    let points = history[selectedPhone];
+    if (!points || points.length === 0) {
+      const sel10 = selectedPhone.replace(/\D/g, '').slice(-10);
+      const fuzzyKey = Object.keys(history).find(k => k.replace(/\D/g, '').slice(-10) === sel10);
+      if (fuzzyKey) points = history[fuzzyKey];
+    }
+    if (!points || points.length === 0) {
+      console.warn('[showAll] No points found for phone:', selectedPhone, 'History keys:', Object.keys(history));
+      return [];
+    }
+
+    const markers = points
+      .filter(p => typeof p.lat === 'number' && !isNaN(p.lat) && p.lat !== 0 &&
+                   typeof p.lng === 'number' && !isNaN(p.lng) && p.lng !== 0)
+      .map((point, idx) => ({
+        id: `all-${idx}`,
+        lat: point.lat,
+        lng: point.lng,
+        label: point.date ? String(point.date) : `Punto ${idx + 1}`,
+        radius: point.radius ? Number(point.radius) : 300, // 300m fallback
+        type: 'device' as const,
+        antennaSector: point.antennaSector || null
+      }));
+
+    console.log(`[showAll] Rendering ${markers.length} markers for ${selectedPhone}`);
+    return markers;
   }, [showAll, selectedPhone, history]);
 
   const handleFileSelect = async (file: File) => {
     setIsProcessing(true);
     const formData = new FormData();
     formData.append('file', file);
-
     const isPdf = file.type === 'application/pdf';
     const endpoint = isPdf ? '/api/process/pdf' : '/api/process/excel';
 
@@ -253,26 +324,35 @@ export default function Dashboard() {
         const data = result.data;
 
         if (isPdf) {
-          const cleanPhone = (data.phone || '').replace('+52', '');
-          const rawCompany = (data.company || '').toUpperCase();
+          const rawPhone = (data.phone || '').replace(/\D/g, '');
+          const cleanPhone = normalizePhone(rawPhone);
+          
+          let rawCompany = (data.company || '').toUpperCase();
+          if (!rawCompany || rawCompany === 'DESCONOCIDA' || rawCompany === 'S/N' || rawCompany === 'S/P') {
+            const found = providers[cleanPhone] || providers[rawPhone] || providers[data.phone] || '';
+            if (found) rawCompany = found.toUpperCase();
+          }
           setGeoCompany(rawCompany || null);
 
-          // 1. marker location (device estimate)
+          // 1. Initial coordinates from PDF
           const markerLat = data.lat ? parseFloat(data.lat) : 0;
           const markerLng = data.lng ? parseFloat(data.lng) : 0;
-
-          // 2. antenna location (circle center) - favor antennaSpecific coordinates from PDF
           let exactAntennaLat = data.antennaLat ? parseFloat(data.antennaLat) : markerLat;
           let exactAntennaLng = data.antennaLng ? parseFloat(data.antennaLng) : markerLng;
 
-          let exactRange = null;
+          // 2. Radius calculation
+          let finalRadius = 400;
           if (data.radius) {
             let r = parseFloat(data.radius);
-            // If radius is small (e.g. 0.384 or 3.5), it's KM. 0.384 -> 384, 1.5 -> 1500, etc.
-            exactRange = r < 15 ? Math.round(r * 1000) : Math.round(r);
-            console.log(`[PDF] extracted radius: ${data.radius} -> treated as ${exactRange} meters`);
+            finalRadius = r < 15 ? Math.round(r * 1000) : Math.round(r);
           }
 
+          // Important: Sync history view immediately so 'anteriores' show up on map
+          setSelectedPhone(cleanPhone);
+          setShowAll(true);
+
+          // 3. Optional cell tower lookup for better sector visualization
+          let currentSector = null;
           if (data.mcc && data.mnc && data.lac && data.cid) {
             try {
               const cellRes = await fetch(
@@ -280,71 +360,53 @@ export default function Dashboard() {
               );
               const cellResult = await cellRes.json();
               if (cellResult.success && cellResult.antenna) {
-                exactAntennaLat = cellResult.antenna.lat;
-                exactAntennaLng = cellResult.antenna.lng;
-                // PDF range is sovereign. If not, use DB capped at 800m. Default fallback 400m.
-                const finalRange = exactRange || (cellResult.antenna.range ? Math.min(cellResult.antenna.range, 800) : 400);
-                const sectorInfo = {
-                  lat: cellResult.antenna.lat,
-                  lng: cellResult.antenna.lng,
+                const antennaRange = cellResult.antenna.range ? Math.min(cellResult.antenna.range, 800) : 400;
+                finalRadius = data.radius ? finalRadius : antennaRange;
+                currentSector = {
+                  lat: markerLat,
+                  lng: markerLng,
                   azimuth: cellResult.antenna.azimuth ?? 0,
-                  range: finalRange,
+                  range: finalRadius,
                   widthDeg: cellResult.antenna.sectorWidthDeg || 120,
                   azimuthSource: cellResult.antenna.azimuthSource || 'unknown',
                 };
-                setAntennaSector(sectorInfo);
-                setModalData((prev: any) => ({ ...prev, antennaSector: sectorInfo, radius: finalRange }));
               } else {
-                // Cell not found in DB — still draw sector using PDF coords + inferred azimuth
                 const cid = parseInt(String(data.cid) || '0');
                 const cellIndex = cid % 256;
                 const inferredAzimuth = (cellIndex <= 2 ? cellIndex : (cid % 3)) * 120;
-                const finalRange = exactRange || 400;
-                if (exactAntennaLat && exactAntennaLng) {
-                  const sectorInfo = {
-                    lat: exactAntennaLat,
-                    lng: exactAntennaLng,
-                    azimuth: inferredAzimuth,
-                    range: finalRange,
-                    widthDeg: 120,
-                    azimuthSource: 'inferred-mod3',
-                  };
-                  setAntennaSector(sectorInfo);
-                  setModalData((prev: any) => ({ ...prev, antennaSector: sectorInfo, radius: finalRange }));
-                }
-              }
-            } catch (e) {
-              console.warn('Cell lookup failed, using PDF coordinates:', e);
-              // Still draw sector from PDF data as fallback
-              const cid = parseInt(String(data.cid) || '0');
-              const cellIndex = cid % 256;
-              const inferredAzimuth = (cellIndex <= 2 ? cellIndex : (cid % 3)) * 120;
-              const finalRange = exactRange || 300;
-              if (exactAntennaLat && exactAntennaLng) {
-                const sectorInfo = {
-                  lat: exactAntennaLat,
-                  lng: exactAntennaLng,
+                currentSector = {
+                  lat: markerLat,
+                  lng: markerLng,
                   azimuth: inferredAzimuth,
-                  range: finalRange,
+                  range: finalRadius,
                   widthDeg: 120,
                   azimuthSource: 'inferred-mod3',
                 };
-                setAntennaSector(sectorInfo);
-                setModalData((prev: any) => ({ ...prev, antennaSector: sectorInfo, radius: finalRange }));
               }
+            } catch (e) {
+              const cid = parseInt(String(data.cid) || '0');
+              const cellIndex = cid % 256;
+              const inferredAzimuth = (cellIndex <= 2 ? cellIndex : (cid % 3)) * 120;
+              currentSector = {
+                lat: markerLat,
+                lng: markerLng,
+                azimuth: inferredAzimuth,
+                range: finalRadius,
+                widthDeg: 120,
+                azimuthSource: 'inferred-mod3',
+              };
             }
           }
 
-          // The antenna location IS the reference point for the circle — device is inside
-          if (exactAntennaLat && exactAntennaLng) {
-            setDeviceCenter([exactAntennaLat, exactAntennaLng]);
-          }
+          // Apply state updates for map visualization
+          setAntennaSector(currentSector);
+          setDeviceCenter([markerLat, markerLng]);
 
-          setModalData((prev: any) => ({
-            ...prev,
+          // Set all modal data for saving
+          setModalData({
             phone: data.phone || '',
             folio: cleanPhone,
-            company: data.company || '',
+            company: rawCompany,
             date: data.date,
             type: 'GEO',
             result: exactAntennaLat ? 'Positivo' : 'Negativo',
@@ -356,16 +418,22 @@ export default function Dashboard() {
             cid: data.cid,
             mcc: data.mcc,
             mnc: data.mnc,
-            radius: exactRange
-          }));
+            radius: finalRadius,
+            antennaSector: currentSector,
+            fileId: data.id 
+          });
           setShowTowers(true);
         } else {
           setModalData({ type: 'Sabana', excelData: result.data, excelCols: result.columns });
         }
         setIsModalOpen(true);
+      } else {
+        const errorData = await response.json();
+        alert(`Error al procesar el archivo: ${errorData.details || errorData.error || 'Desconocido'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing file:', error);
+      alert(`Error de conexión: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -373,13 +441,14 @@ export default function Dashboard() {
 
   const handleSaveModal = async (data: any) => {
     if (data.type === 'GEO') {
-      const phone = data.phone || 'S/N';
+      const phone = normalizePhone(data.phone || 'S/N');
       const now = new Date();
-      // Format: DD/MM/YYYY HH:MM — date when the GEO was requested
       const requestedDate = now.toLocaleDateString('es-MX', {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit', hour12: false
       });
+
+      // Prepare point for immediate local update
       const newPoint = {
         id: Date.now(),
         lat: parseFloat(data.lat || modalData.lat || 19.4326),
@@ -388,15 +457,19 @@ export default function Dashboard() {
         antennaLng: modalData.antennaLng,
         lac: modalData.lac,
         cid: modalData.cid,
-        // Store real PDF radius for the accuracy circle on the map
         radius: modalData.radius ? parseFloat(modalData.radius) : null,
-        address: data.direccion || modalData.direccion || 'Dirección de búsqueda',
-        date: requestedDate,
+        address: data.area || modalData.address || 'Dirección de búsqueda',
+        date: modalData.date || data.date || requestedDate,
         timestamp: now.getTime(),
-        antennaSector: modalData.antennaSector || null
+        antennaSector: modalData.antennaSector || null,
+        fileId: modalData.fileId || null
       };
 
       setHistory(prev => ({ ...prev, [phone]: [newPoint, ...(prev[phone] || [])] }));
+      if (data.company) {
+        setProviders(prev => ({ ...prev, [phone]: data.company }));
+      }
+      setActiveTimelineIndex(0);
       setSelectedPhone(phone);
       setViewedPoint(null);
     } else if (data.type === 'Sabana' && modalData.excelData) {
@@ -404,162 +477,208 @@ export default function Dashboard() {
       setExcelData(modalData.excelData);
     }
 
-    await fetch('/api/intellectus/save', {
+    // Persist to DB
+    const saveRes = await fetch('/api/intellectus/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        lat: modalData.lat,
+        lng: modalData.lng,
+        antennaLat: modalData.antennaLat,
+        antennaLng: modalData.antennaLng,
+        radius: modalData.radius,
+        antennaSector: modalData.antennaSector,
+        fileId: modalData.fileId || null
+      }),
     });
+
+    const saveResult = await saveRes.json();
+    if (saveResult.success) {
+        if (saveResult.excelSaved) {
+            alert(`✅ Registro guardado con éxito en Excel (Folio: ${saveResult.numProg})`);
+        } else {
+            alert(`⚠️ Datos guardados localmente, pero NO se pudo escribir en el Excel Maestro (probablemente está abierto). Por favor registre manualmente o intente procesar de nuevo con el Excel cerrado.`);
+        }
+    }
+
+    // Reload history to ensure everything is synced
+    if (data.type === 'GEO') {
+      try {
+        const phone = normalizePhone(data.phone || 'S/N');
+        const res = await fetch('/api/intellectus/history');
+        const result = await res.json();
+        if (result.success && result.history) {
+          const pts = result.history[phone];
+          setHistory(result.history);
+          if (result.providers) setProviders(result.providers);
+          setSelectedPhone(phone);
+          setActiveTimelineIndex(0);
+          
+          if (pts && pts.length > 0) {
+            setShowAll(false);
+            setViewedPoint([pts[0].lat, pts[0].lng]);
+            setDeviceCenter([pts[0].lat, pts[0].lng]);
+            setCameraFlyTo([pts[0].lat, pts[0].lng]);
+          } else {
+            setShowAll(true);
+            setViewedPoint(null);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not reload history:', e);
+      }
+    }
 
     setIsModalOpen(false);
     setModalData({});
   };
 
   return (
-    <>
-      <div className="flex items-center justify-between mb-6">
-        <div className="animate-in fade-in slide-in-from-left-4 duration-700">
-          <h1 className="text-4xl font-black text-white tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-slate-100 to-slate-400">
-            Control Intellectus
+    <div className="flex w-full h-[100vh] overflow-hidden bg-zinc-950 text-slate-200">
+      
+      {/* ── Left Sidebar (Targets & File Upload) ── */}
+      <div className="w-[320px] flex-shrink-0 bg-[#09090b] border-r border-white/10 flex flex-col z-20 shadow-2xl overflow-hidden relative">
+        <div className="p-5 border-b border-white/5 bg-zinc-900/20 whitespace-nowrap">
+          <h1 className="text-xl font-bold text-white tracking-widest flex items-center gap-3 uppercase">
+            <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+            Discovery
           </h1>
+          <p className="text-[9px] text-zinc-500 mt-1.5 uppercase tracking-[0.2em] font-bold">Location Intel System</p>
+        </div>
+
+        <div className="p-4 border-b border-white/5 flex items-center justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest whitespace-nowrap">
+           <div className="flex items-center gap-2"><div className="w-7 h-3 rounded-full bg-zinc-800 border border-white/10 relative"><div className="absolute left-0.5 top-0.5 w-2 h-2 rounded-full bg-zinc-600"></div></div> MSISDNS</div>
+           <div className="flex items-center gap-2"><div className="w-7 h-3 rounded-full bg-blue-500/20 border border-blue-500/50 relative"><div className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full bg-blue-500"></div></div> LOCATIONS</div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-1 bg-zinc-950/50 min-w-[320px]">
+             {Object.keys(history)
+                .filter(key => history[key] && history[key].length > 0)
+                .sort((a, b) => {
+                  const timeA = history[a][0].timestamp ? Number(history[a][0].timestamp) : 0;
+                  const timeB = history[b][0].timestamp ? Number(history[b][0].timestamp) : 0;
+                  return timeB - timeA;
+                })
+                .map(phone => {
+                  const isActive = selectedPhone === phone;
+                  return (
+                    <button key={phone} onClick={() => { 
+                          setSelectedPhone(phone); 
+                          setActiveTimelineIndex(0); 
+                          if (history[phone] && history[phone].length > 0) {
+                              setShowAll(false);
+                              const recent = history[phone][0];
+                              setViewedPoint([recent.lat, recent.lng]);
+                              setDeviceCenter([recent.lat, recent.lng]);
+                              setCameraFlyTo([recent.lat, recent.lng]);
+                          } else {
+                              setShowAll(true);
+                              setViewedPoint(null);
+                          }
+                      }} 
+                            className={`w-full flex items-center justify-between px-3 py-3 rounded-lg border transition-all duration-200 group text-left ${isActive ? 'bg-blue-600/10 border-blue-500/30' : 'bg-transparent border-transparent text-zinc-400 hover:bg-zinc-900 hover:border-white/5'}`}>
+                      <div className="flex items-center gap-3 w-full">
+                        <PhoneCall size={12} className={isActive ? 'text-blue-400' : 'text-zinc-600 group-hover:text-zinc-400'} />
+                        <span className={`text-xs font-mono tracking-tight flex-1 ${isActive ? 'text-blue-100 font-bold' : 'font-medium'}`}>{phone}</span>
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]" />}
+                      </div>
+                    </button>
+                  );
+                })}
+        </div>
+        
+        <div className="p-4 border-t border-white/5 bg-zinc-900/20 min-w-[320px]">
+          <FileUpload onFileSelect={handleFileSelect} isLoading={isProcessing} />
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-8 overflow-hidden mb-2">
-        <div className="lg:col-span-8 flex flex-col gap-8 overflow-hidden">
-          <div className="relative group flex-1 min-h-0">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-[2.5rem] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000 pointer-events-none" />
-            <Map
-              markers={markers}
-              towerMarkers={towerMarkers}
-              showTowers={showTowers}
-              center={center}
-              zoom={viewedPoint ? 17 : 14}
-              geoCompany={geoCompany}
-              targetCenter={deviceCenter || center}
-              towerRange={towerRange}
-              cameraFlyTo={cameraFlyTo}
-              antennaSector={!showAll ? antennaSector : null}
-              extraMarkers={showAll ? allPointsMarkers : []}
-            />
-          </div>
-          {excelData.length > 0 && (
-            <div className="h-1/3 min-h-[200px] overflow-hidden glass rounded-3xl p-4">
-              <DataTable columns={excelCols} data={excelData} />
+      {/* ── Main Content Area ── */}
+      <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative z-10 h-[100vh]">
+        
+        {/* Full Screen Map */}
+        <div className="flex-1 w-full bg-[#09090b]">
+            {/* Embedded Excel Overlay */}
+
+            {excelData.length > 0 && (
+              <div className="absolute top-4 right-4 z-[1001] w-[600px] bg-zinc-950/95 backdrop-blur-xl border border-white/10 rounded-xl max-h-[50vh] overflow-hidden flex flex-col shadow-2xl">
+                 <div className="flex items-center justify-between p-3 border-b border-white/10 bg-zinc-900/50">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300">Análisis Tabular Excel</span>
+                    <button onClick={() => setExcelData([])} className="p-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-colors"><X size={14}/></button>
+                 </div>
+                 <div className="flex-1 overflow-auto"><DataTable columns={excelCols} data={excelData} /></div>
+              </div>
+            )}
+
+            <div className="absolute inset-0">
+               <Map
+                  markers={markers}
+                  towerMarkers={towerMarkers}
+                  showTowers={showTowers}
+                  center={center}
+                  zoom={viewedPoint ? 17 : 3}
+                  geoCompany={geoCompany}
+                  targetCenter={deviceCenter || center}
+                  towerRange={towerRange}
+                  cameraFlyTo={cameraFlyTo}
+                  antennaSector={antennaSector}
+                  extraMarkers={showAll ? allPointsMarkers : []}
+               />
             </div>
-          )}
+            
+            {/* Action Bar (Top of map) */}
+            <div className="absolute top-4 left-6 right-4 z-[500] pointer-events-none flex justify-between">
+                <div className="bg-[#09090b]/80 backdrop-blur pointer-events-auto rounded shadow-lg border border-white/10 flex p-1">
+                   <button className="px-3 py-1 bg-zinc-900/50 hover:bg-zinc-800 border border-white/5 text-xs font-bold text-zinc-300 rounded transition-colors">Discovery Summary</button>
+                   <button className="px-3 py-1 hover:bg-zinc-800 border border-transparent text-xs font-bold text-zinc-400 rounded flex gap-2 items-center transition-colors">
+                       Locate new <Crosshair size={12} className="text-blue-500"/>
+                   </button>
+                   {selectedPhone && (
+                      <div className="ml-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded flex items-center gap-3">
+                         <span className="text-xs font-bold text-blue-100">{selectedPhone}</span>
+                         <span className="text-[9px] text-blue-400/70 uppercase tracking-widest">MSISDN</span>
+                      </div>
+                   )}
+                </div>
+            </div>
+
         </div>
 
-        <div className="lg:col-span-4 flex flex-col gap-6 overflow-hidden">
-          <div className="glass p-6 rounded-[2rem] flex-[1.1] flex flex-col overflow-hidden">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20 shadow-lg shadow-indigo-500/5 transition-transform duration-500 hover:rotate-3"><Navigation size={20} /></div>
-              <div>
-                <h3 className="text-lg font-extrabold text-white tracking-tight uppercase">Dispositivos</h3>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none mt-1">Recientes</p>
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 no-scrollbar mb-4">
-              {Object.keys(history).sort((a, b) => history[b][0].timestamp - history[a][0].timestamp).map(phone => (
-                <button key={phone} onClick={() => { setSelectedPhone(phone); setViewedPoint(null); }} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-300 group ${selectedPhone === phone ? 'bg-indigo-600/10 border-indigo-500/40 shadow-lg shadow-indigo-500/5' : 'bg-slate-900/40 border-white/5 text-slate-400 hover:bg-slate-800'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${selectedPhone === phone ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/40' : 'bg-slate-800 text-slate-600'}`}><PhoneCall size={10} /></div>
-                    <span className={`text-[13px] tracking-tighter ${selectedPhone === phone ? 'font-black text-white' : 'font-bold'}`}>{phone}</span>
-                  </div>
-                  <div className={`w-1 h-1 rounded-full transition-all ${selectedPhone === phone ? 'bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,1)]' : 'bg-slate-800 opacity-0 group-hover:opacity-100'}`} />
-                </button>
-              ))}
-            </div>
-            <FileUpload onFileSelect={handleFileSelect} isLoading={isProcessing} />
-          </div>
-
-          <div className="glass p-6 rounded-[2rem] flex-1 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20 shadow-lg shadow-cyan-500/5"><History size={20} /></div>
-                <div>
-                  <h3 className="text-lg font-extrabold text-white tracking-tight uppercase">Cronograma</h3>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none mt-1">Geolocalización</p>
-                </div>
-              </div>
-              {selectedPhone && (
-                <div className="flex items-center gap-2">
-                  {/* Count bubble */}
-                  <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                    <span className="text-[10px] font-black text-white">{history[selectedPhone]?.length || 0}</span>
-                  </div>
-                  {/* Mode toggle */}
-                  <div className="flex items-center bg-slate-900/60 border border-white/5 rounded-lg p-0.5">
-                    <button
-                      onClick={() => setShowAll(false)}
-                      className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${!showAll ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
-                        }`}
-                    >
-                      Timeline
-                    </button>
-                    <button
-                      onClick={() => { setShowAll(true); setViewedPoint(null); }}
-                      className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${showAll ? 'bg-cyan-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
-                        }`}
-                    >
-                      Ver Todas
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar">
-              {selectedPhone && history[selectedPhone]?.map((point, idx) => (
-                <button
-                  key={point.id}
-                  onClick={() => {
+        {/* Flush Bottom Timeline Overlaps Map */}
+        <div className="absolute bottom-0 left-0 right-0 h-[60px] bg-[#09090b]/90 backdrop-blur shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-[500] flex flex-col justify-center border-t border-white/10">
+            {selectedPhone ? (
+               <Timeline
+                  points={history[selectedPhone] || []}
+                  activeIndex={activeTimelineIndex}
+                  showAll={showAll}
+                  onToggleShowAll={(val) => { setShowAll(val); if (!val) setViewedPoint(null); }}
+                  onSelect={(idx, point) => {
+                    setActiveTimelineIndex(idx);
                     setShowAll(false);
                     setViewedPoint([point.lat, point.lng]);
                     setDeviceCenter([point.lat, point.lng]);
                     setAntennaSector(point.antennaSector || null);
                   }}
-                  className={`w-full text-left border p-4 rounded-2xl transition-all group flex items-start gap-4 shadow-inner ${!showAll && viewedPoint && viewedPoint[0] === point.lat
-                    ? 'bg-indigo-600/10 border-indigo-500/30'
-                    : showAll
-                      ? 'bg-cyan-500/5 border-cyan-500/10 hover:border-cyan-500/30'
-                      : 'bg-slate-900/40 border-white/5 hover:bg-slate-900/80 hover:border-white/10'
-                    }`}
-                >
-                  {/* Timeline dot + connector */}
-                  <div className="flex flex-col items-center gap-1 mt-1 shrink-0">
-                    <div className={`w-2.5 h-2.5 rounded-full border-2 transition-all ${showAll ? 'bg-cyan-400 border-cyan-300/50 shadow-[0_0_8px_rgba(34,211,238,0.6)]'
-                      : !showAll && viewedPoint && viewedPoint[0] === point.lat ? 'bg-indigo-400 border-white/30 shadow-[0_0_10px_rgba(129,140,248,0.8)]'
-                        : 'bg-slate-700 border-white/5'
-                      }`} />
-                    {idx !== history[selectedPhone].length - 1 && <div className="w-px flex-1 min-h-[32px] bg-white/5" />}
-                  </div>
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    {/* Date/time */}
-                    <div className="flex items-center gap-1.5 text-slate-500 mb-1">
-                      <Clock size={9} className="opacity-60 shrink-0" />
-                      <span className="text-[8px] font-extrabold uppercase tracking-[0.2em] truncate">
-                        {point.date ? new Date(point.date).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : point.date}
-                      </span>
-                    </div>
-                    {/* Address */}
-                    <p className="text-[11px] font-bold text-white/90 leading-snug mb-2 truncate">{point.address}</p>
-                    {/* Coords */}
-                    <div className="flex items-center gap-1 text-[8px] text-slate-600 font-mono">
-                      <span>{point.lat.toFixed(5)}</span>
-                      <span className="text-slate-700">,</span>
-                      <span>{point.lng.toFixed(5)}</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={12} className="text-slate-700 group-hover:text-indigo-400 transition-colors shrink-0 mt-2" />
-                </button>
-              ))}
+                  onViewPDF={(fileId) => window.open(`/api/files/${fileId}`, '_blank')}
+                />
+            ) : (
+            <div className="flex items-center justify-center gap-3 opacity-30">
+                  <Clock size={16} className="text-zinc-500" />
+                  <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.2em]">TIMELINE SCANNER STANDBY</p>
             </div>
-          </div>
+            )}
         </div>
+
       </div>
-      <ControlModal isOpen={isModalOpen} initialData={modalData} onClose={() => { setIsModalOpen(false); setModalData({}); }} onSave={handleSaveModal} />
-    </>
+      
+      <ControlModal 
+        isOpen={isModalOpen} 
+        initialData={modalData} 
+        knownProviders={providers}
+        onClose={() => { setIsModalOpen(false); setModalData({}); }} 
+        onSave={handleSaveModal} 
+      />
+    </div>
   );
+
 }

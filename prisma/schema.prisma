@@ -10,6 +10,7 @@ datasource db {
 model Device {
   id        String     @id @default(uuid())
   phone     String     @unique
+  provider  String?
   locations Location[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -28,5 +29,18 @@ model Location {
   date          String?
   timestamp     BigInt?
   antennaSector String?  // Stringified JSON
+  fileId        String?  // Relation to FileRecord
+  file          FileRecord? @relation(fields: [fileId], references: [id])
   createdAt     DateTime @default(now())
+}
+
+model FileRecord {
+  id        String     @id @default(uuid())
+  fileName  String
+  filePath  String
+  fileType  String     // 'PDF' or 'Excel'
+  phone     String?
+  date      DateTime?
+  locations Location[]
+  createdAt DateTime   @default(now())
 }

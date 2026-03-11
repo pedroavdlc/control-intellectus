@@ -19,12 +19,13 @@ interface ControlEntry {
 
 interface ControlModalProps {
     initialData?: Partial<ControlEntry>;
+    knownProviders?: Record<string, string | null>;
     isOpen: boolean;
     onClose: () => void;
     onSave: (data: ControlEntry) => void;
 }
 
-export default function ControlModal({ initialData = {}, isOpen, onClose, onSave }: ControlModalProps) {
+export default function ControlModal({ initialData = {}, knownProviders = {}, isOpen, onClose, onSave }: ControlModalProps) {
     const [formData, setFormData] = useState<ControlEntry>({
         numProg: 0,
         date: new Date().toLocaleString('es-MX', {
@@ -45,6 +46,14 @@ export default function ControlModal({ initialData = {}, isOpen, onClose, onSave
     const [isSaving, setIsSaving] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    // Helper to normalize phone numbers for lookup
+    const normalizePhone = (p: string) => {
+        const clean = (p || '').replace(/\D/g, '');
+        if (clean.length > 10 && clean.startsWith('52')) return clean.substring(2);
+        if (clean.length > 10 && clean.startsWith('044')) return clean.substring(3);
+        return clean;
+    };
+
     const [authors, setAuthors] = useState<string[]>([]);
     const [areas, setAreas] = useState<string[]>([]);
     const [companies, setCompanies] = useState<string[]>([]);
@@ -64,7 +73,9 @@ export default function ControlModal({ initialData = {}, isOpen, onClose, onSave
             setCompanies(savedCompanies);
 
             const phone = initialData.phone || '';
-            const company = initialData.company || '';
+            const rawPhone = phone.replace(/\D/g, '');
+            const cleanPhone = normalizePhone(rawPhone);
+            const company = initialData.company || knownProviders[cleanPhone] || knownProviders[rawPhone] || knownProviders[phone] || '';
 
             setFormData(prev => ({
                 ...prev,
@@ -79,7 +90,18 @@ export default function ControlModal({ initialData = {}, isOpen, onClose, onSave
                 phone: phone
             }));
         }
-    }, [initialData, isOpen]);
+    }, [initialData, isOpen, knownProviders]);
+
+    // Update company whenever phone changes manually
+    useEffect(() => {
+        const rawPhone = formData.phone.replace(/\D/g, '');
+        const cleanPhone = normalizePhone(rawPhone);
+        const known = knownProviders[cleanPhone] || knownProviders[rawPhone] || knownProviders[formData.phone];
+        
+        if (formData.phone && known && (!formData.company || formData.company === 'DESCONOCIDA' || formData.company === 'S/N')) {
+            setFormData(prev => ({ ...prev, company: known || '' }));
+        }
+    }, [formData.phone, knownProviders]);
 
     if (!isOpen) return null;
 

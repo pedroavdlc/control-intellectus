@@ -8,17 +8,23 @@ export default function SearchControlPage() {
     const [data, setData] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [error, setError] = useState<string | null>(null);
 
     const fetchData = async () => {
         setLoading(true);
+        setError(null);
         try {
             const res = await fetch('/api/intellectus/control-data');
             const result = await res.json();
             if (result.success) {
                 setData(result.data);
+            } else if (result.message) {
+                setError(result.message);
+                setData([]);
             }
         } catch (e) {
             console.error(e);
+            setError('Error al conectar con la base de datos.');
         } finally {
             setLoading(false);
         }
@@ -38,8 +44,8 @@ export default function SearchControlPage() {
         <div className="space-y-8 animate-in fade-in duration-700">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
-                    <h1 className="text-4xl font-black text-white tracking-tighter mb-2">Control de Búsquedas</h1>
-                    <p className="text-slate-400 text-lg font-medium">Historial completo del archivo Excel Maestro</p>
+                    <h1 className="text-4xl font-black text-white tracking-tighter mb-2">Control de Excel</h1>
+                    <p className="text-slate-400 text-lg font-medium">Historial completo del archivo Excel Maestro y PDFs Cargados</p>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -68,11 +74,27 @@ export default function SearchControlPage() {
                 <StatItem label="Negativos" value={data.filter(d => String(d['Resultado\r\n(POS / NEG)']).toLowerCase().includes('neg')).length} color="text-rose-400" />
             </div>
 
-            <div className="glass rounded-[2.5rem] border border-white/5 overflow-hidden shadow-2xl min-h-[500px]">
+            <div className="glass rounded-[2.5rem] border border-white/5 overflow-hidden shadow-2xl min-h-[500px] relative">
                 {loading ? (
                     <div className="p-20 flex flex-col items-center justify-center gap-4 opacity-50">
                         <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
                         <p className="text-white font-bold tracking-widest uppercase text-xs">Cargando base de datos maestra...</p>
+                    </div>
+                ) : error ? (
+                    <div className="p-20 flex flex-col items-center justify-center gap-6 text-center">
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-full">
+                            <Database className="text-amber-500" size={32} />
+                        </div>
+                        <div className="max-w-md space-y-2">
+                            <p className="text-white font-bold text-xl">{error}</p>
+                            <p className="text-slate-400">El sistema no pudo acceder al archivo Excel porque está abierto en otra aplicación o no existe.</p>
+                        </div>
+                        <button 
+                            onClick={fetchData}
+                            className="px-8 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold transition-all border border-white/10"
+                        >
+                            Intentar de nuevo
+                        </button>
                     </div>
                 ) : (
                     <DataTable

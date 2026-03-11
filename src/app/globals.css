@@ -2,21 +2,19 @@
 
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 :root {
-  --background: #020617;
-  --foreground: #f1f5f9;
-  --primary: #818cf8;
-  --secondary: #38bdf8;
-  --accent: #fbbf24;
-  --sidebar: #0f172a;
-  --card: rgba(10, 15, 30, 0.85);
-  /* Darker, more solid sophisticated feel */
-  --card-foreground: #f8fafc;
-  --border: rgba(255, 255, 255, 0.05);
-  /* Thinner border */
+  --background: #09090b; /* Zinc 950 */
+  --foreground: #fafafa;
+  --primary: #3b82f6; /* Blue 500 */
+  --secondary: #0ea5e9;
+  --accent: #f59e0b;
+  --sidebar: #18181b; /* Zinc 900 */
+  --card: rgba(24, 24, 27, 0.7); /* Zinc 900 translucent */
+  --card-foreground: #fafafa;
+  --border: rgba(255, 255, 255, 0.08);
 }
 
 body {
@@ -29,49 +27,42 @@ body {
 
 .glass {
   background: var(--card);
-  backdrop-filter: blur(40px);
-  /* Deeper blur */
-  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
-  box-shadow: 0 15px 50px -15px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.5);
 }
 
 /* Typography polish for enterprise look */
-h1,
-h2,
-h3,
-h4 {
-  letter-spacing: -0.03em;
-  font-weight: 900;
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+  font-weight: 700;
 }
 
 /* Leaflet maps need explicit height */
 .leaflet-container {
   width: 100%;
   height: 100%;
-  border-radius: 1.5rem;
+  border-radius: 0;
+  background: #09090b !important; /* blend map bg */
   filter: contrast(1.1) brightness(0.9);
-  /* More tactical look */
 }
 
-/* Hide scrollbar */
+
+/* Hide scrollbar completely */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-
 .no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
 }
 
-/* Transition for enterprise feel */
+/* Transition for enterprise feel (subtle) */
 .card-hover {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s ease-in-out;
 }
-
 .card-hover:hover {
-  transform: translateY(-4px) scale(1.005);
-  border-color: rgba(99, 102, 241, 0.2);
-  background: rgba(15, 20, 40, 0.9);
-  box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(39, 39, 42, 0.8); /* Zinc 800 */
 }
