@@ -14,21 +14,34 @@ export async function GET() {
             return NextResponse.json({ success: true, data: [] });
         }
 
+        let fileBuffer;
         try {
-            // Attempt to read the file
-            const wb = xlsx.readFile(controlPath);
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const data = xlsx.utils.sheet_to_json(ws);
-
-            return NextResponse.json({ success: true, data });
-        } catch (readError: any) {
-            console.error('[ControlData] Error reading Excel:', readError.message);
-            // If locked, we might want to try reading a copy or just informing the user
+            console.log(`[ControlData] Attempting fs.readFileSync of ${controlPath}`);
+            fileBuffer = fs.readFileSync(controlPath);
+            console.log(`[ControlData] fs.readFileSync success, buffer length: ${fileBuffer.length}`);
+        } catch (fsErr: any) {
+            console.error('[ControlData] FS Read Error:', fsErr.code, fsErr.message);
             return NextResponse.json({ 
                 success: false, 
-                message: 'El archivo Excel maestro está bloqueado. Por favor, ciérrelo en su computadora para poder visualizar los datos en el sistema.',
-                error: readError.message 
-            }, { status: 200 }); // Return 200 so frontend can handle it nicely
+                message: 'El sistema no puede leer el archivo físico. Verifique que no esté abierto o bloqueado.',
+                error: fsErr.message 
+            });
+        }
+
+        try {
+            console.log(`[ControlData] Attempting xlsx.read`);
+            const wb = xlsx.read(fileBuffer, { type: 'buffer' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const data = xlsx.utils.sheet_to_json(ws);
+            console.log(`[ControlData] xlsx.read success, rows: ${data.length}`);
+            return NextResponse.json({ success: true, data });
+        } catch (xlsxErr: any) {
+            console.error('[ControlData] XLSX Parse Error:', xlsxErr.message);
+            return NextResponse.json({ 
+                success: false, 
+                message: 'Error al procesar el formato del archivo Excel.',
+                error: xlsxErr.message 
+            });
         }
     } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });

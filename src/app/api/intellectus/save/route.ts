@@ -43,11 +43,15 @@ export async function POST(req: NextRequest) {
         let excelSaved = false;
 
         try {
+            console.log(`[Save] Checking control Excel at: ${controlPath}`);
             if (fs.existsSync(controlPath)) {
-                wbControl = xlsx.readFile(controlPath);
+                // Use fs.readFileSync for more literal access
+                const fileBuffer = fs.readFileSync(controlPath);
+                wbControl = xlsx.read(fileBuffer, { type: 'buffer' });
                 sheetNameControl = wbControl.SheetNames[0];
                 const ws = wbControl.Sheets[sheetNameControl];
                 controlData = xlsx.utils.sheet_to_json(ws);
+                console.log(`[Save] Loaded ${controlData.length} rows from ${sheetNameControl}`);
 
                 if (numProg <= 0) {
                     const lastEntry = controlData[controlData.length - 1];
@@ -58,8 +62,7 @@ export async function POST(req: NextRequest) {
                 console.warn('[Save] Control Excel does not exist at:', controlPath);
             }
         } catch (excelReadErr: any) {
-            console.warn('[Save] Could not read control Excel (might be open/locked):', excelReadErr.message);
-            // We set excelSaved to false later if we can't write, but we already know we can't if we can't read.
+            console.error('[Save] Error reading control Excel:', excelReadErr.message);
         }
 
         // 2. Folder Storage
@@ -92,6 +95,7 @@ export async function POST(req: NextRequest) {
         }
 
         // 3. Save to Control Excel
+        console.log(`[Save] Preparing to save to control Excel. wbControl exists: ${!!wbControl}`);
         try {
             if (wbControl) {
                 controlData.push({
@@ -115,12 +119,16 @@ export async function POST(req: NextRequest) {
 
                 const newWs = xlsx.utils.json_to_sheet(controlData);
                 wbControl.Sheets[sheetNameControl] = newWs;
-                xlsx.writeFile(wbControl, controlPath);
+                
+                // Write to buffer first, then use fs for more direct control/error reporting
+                const excelBuf = xlsx.write(wbControl, { type: 'buffer', bookType: 'xlsx' });
+                fs.writeFileSync(controlPath, excelBuf);
+                
                 excelSaved = true;
                 console.log('[Save] Successfully updated Control Excel at:', controlPath);
             }
         } catch (excelWriteErr: any) {
-            console.warn('[Save] Could not write control Excel:', excelWriteErr.message);
+            console.error('[Save] Error writing control Excel (Direct FS):', excelWriteErr.code, excelWriteErr.message);
             excelSaved = false;
         }
 
@@ -128,7 +136,8 @@ export async function POST(req: NextRequest) {
         try {
             const reportPath = path.join(BASE_STORAGE, FILE_REPORT);
             if (fs.existsSync(reportPath)) {
-                const wb = xlsx.readFile(reportPath);
+                const reportBuffer = fs.readFileSync(reportPath);
+                const wb = xlsx.read(reportBuffer, { type: 'buffer' });
                 const now = new Date();
                 const monthMap: Record<number, string> = {
                     0: 'ENERO', 1: 'FEBRERO', 2: 'MARZO', 3: 'ABRIL', 4: 'MAYO', 5: 'JUNIO',
@@ -164,11 +173,13 @@ export async function POST(req: NextRequest) {
                     wb.Sheets[sheetName] = newWs;
                 }
                 
-                xlsx.writeFile(wb, reportPath);
+                const reportBuf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+                fs.writeFileSync(reportPath, reportBuf);
+                
                 console.log('[Save] Successfully updated Monthly Report at:', reportPath);
             }
         } catch (reportErr: any) {
-            console.warn('[Save] Could not update monthly report:', reportErr.message);
+            console.error('[Save] Error updating monthly report (Direct FS):', reportErr.code, reportErr.message);
         }
 
         // 5. DB Persistence (Real Database) — always runs regardless of Excel errors

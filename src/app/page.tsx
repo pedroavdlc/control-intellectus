@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useDropzone } from 'react-dropzone';
 import dynamic from 'next/dynamic';
 import {
   Plus,
@@ -18,7 +19,9 @@ import {
   RefreshCw,
   FileText,
   Download,
-  X
+  X,
+  PlusCircle,
+  Upload as UploadIcon
 } from 'lucide-react';
 import { MapMarker } from '@/types/map';
 import Sidebar from '@/components/Sidebar';
@@ -51,6 +54,19 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<any>({});
   const [isProcessing, setIsProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: (acceptedFiles) => {
+      if (acceptedFiles.length > 0) handleFileSelect(acceptedFiles[0]);
+    },
+    noClick: true,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+    }
+  });
   const [excelData, setExcelData] = useState<any[]>([]);
   const [excelCols, setExcelCols] = useState<string[]>([]);
   const [history, setHistory] = useState<Record<string, any[]>>({});
@@ -556,8 +572,8 @@ export default function Dashboard() {
              {Object.keys(history)
                 .filter(key => history[key] && history[key].length > 0)
                 .sort((a, b) => {
-                  const timeA = history[a][0].timestamp ? Number(history[a][0].timestamp) : 0;
-                  const timeB = history[b][0].timestamp ? Number(history[b][0].timestamp) : 0;
+                  const timeA = new Date(history[a][0].createdAt).getTime();
+                  const timeB = new Date(history[b][0].createdAt).getTime();
                   return timeB - timeA;
                 })
                 .map(phone => {
@@ -589,15 +605,47 @@ export default function Dashboard() {
         </div>
         
         <div className="p-4 border-t border-white/5 bg-zinc-900/20 min-w-[320px]">
-          <FileUpload onFileSelect={handleFileSelect} isLoading={isProcessing} />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:opacity-50 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-blue-500/20 border border-blue-400/20"
+          >
+            {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <PlusCircle size={16} />}
+            {isProcessing ? 'Procesando...' : 'Cargar Nuevo'}
+          </button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+            className="hidden" 
+            accept=".pdf,.xlsx,.xls"
+          />
         </div>
       </div>
 
-      {/* ── Main Content Area ── */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative z-10 h-[100vh]">
+       {/* ── Main Content Area ── */}
+      <div 
+        {...getRootProps()}
+        className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative z-10 h-[100vh]"
+      >
+        <input {...getInputProps()} />
         
         {/* Full Screen Map */}
-        <div className="flex-1 w-full bg-[#09090b]">
+        <div className="flex-1 w-full bg-[#09090b] relative">
+            
+            {/* Drag Overlay */}
+            {isDragActive && (
+              <div className="absolute inset-0 z-[2000] bg-blue-600/40 backdrop-blur-sm border-4 border-dashed border-blue-400 m-4 rounded-3xl flex flex-col items-center justify-center gap-6 animate-in fade-in duration-300 pointer-events-none">
+                 <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center shadow-2xl animate-bounce">
+                    <UploadIcon size={48} className="text-white" />
+                 </div>
+                 <div className="text-center">
+                    <h2 className="text-4xl font-black text-white tracking-tighter uppercase mb-2">Soltar Archivo</h2>
+                    <p className="text-blue-100 text-xl font-medium">Procesar PDF o Sabana instantáneamente</p>
+                 </div>
+              </div>
+            )}
+
             {/* Embedded Excel Overlay */}
 
             {excelData.length > 0 && (
