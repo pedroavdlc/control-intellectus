@@ -5,10 +5,10 @@ import path from 'path';
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const id = params.id;
+        const { id } = await params;
         const fileRecord = await prisma.fileRecord.findUnique({
             where: { id }
         });

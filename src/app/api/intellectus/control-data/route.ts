@@ -1,49 +1,97 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import * as xlsx from 'xlsx';
-
-const BASE_STORAGE = "C:\\Users\\SO\\Videos\\archivos wed intellectus";
-const FILE_CONTROL = "CONTROL DE GEOS Y SABANAS.xlsx";
 
 export async function GET() {
     try {
-        const controlPath = path.join(BASE_STORAGE, FILE_CONTROL);
-        if (!fs.existsSync(controlPath)) {
-            console.warn(`[ControlData] File not found: ${controlPath}`);
-            return NextResponse.json({ success: true, data: [] });
+        const { prisma } = await import('@/lib/prisma');
+        
+        // Auto-backfill history if the table is empty
+        const count = await (prisma as any).consultation.count();
+        if (count === 0) {
+            console.log('[ControlData] Backfilling consultations from historical locations...');
+            const locations = await (prisma as any).location.findMany({
+                include: { device: true },
+                orderBy: { createdAt: 'desc' }
+            });
+            
+            const map = new Map();
+            for (const loc of locations) {
+                const dateKey = loc.date ? loc.date.split(' ')[0] : 'Unknown';
+                const key = `${loc.phone}-${dateKey}`;
+                if (!map.has(key)) {
+                    map.set(key, loc);
+                    const company = loc.device?.provider || 'DESCONOCIDA';
+                    await (prisma as any).consultation.create({
+                        data: {
+                            folio: loc.phone || 'S/N',
+                            phone: loc.phone || '0000000000',
+                            company: company,
+                            date: loc.date,
+                            author: 'SISTEMA (HISTÓRICO)',
+                            type: 'GEO',
+                            area: 'HISTORIAL',
+                            result: 'POSITIVO',
+                            creditsUsed: company.includes('AT&T') ? 2 : 1
+                        }
+                    });
+                }
+            }
         }
 
-        let fileBuffer;
-        try {
-            console.log(`[ControlData] Attempting fs.readFileSync of ${controlPath}`);
-            fileBuffer = fs.readFileSync(controlPath);
-            console.log(`[ControlData] fs.readFileSync success, buffer length: ${fileBuffer.length}`);
-        } catch (fsErr: any) {
-            console.error('[ControlData] FS Read Error:', fsErr.code, fsErr.message);
-            return NextResponse.json({ 
-                success: false, 
-                message: 'El sistema no puede leer el archivo físico. Verifique que no esté abierto o bloqueado.',
-                error: fsErr.message 
-            });
-        }
+        const consults = await (prisma as any).consultation.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
 
-        try {
-            console.log(`[ControlData] Attempting xlsx.read`);
-            const wb = xlsx.read(fileBuffer, { type: 'buffer' });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const data = xlsx.utils.sheet_to_json(ws);
-            console.log(`[ControlData] xlsx.read success, rows: ${data.length}`);
-            return NextResponse.json({ success: true, data });
-        } catch (xlsxErr: any) {
-            console.error('[ControlData] XLSX Parse Error:', xlsxErr.message);
-            return NextResponse.json({ 
-                success: false, 
-                message: 'Error al procesar el formato del archivo Excel.',
-                error: xlsxErr.message 
-            });
-        }
+        // Parse to match Excel format for frontend compatibility
+        const data = consults.map((c: any) => ({
+            id: c.id,
+            'Núm. prog.': c.numProg || 0,
+            'folio': c.folio || '',
+            'Teléfono': c.phone || '',
+            'Fecha consulta': c.date || '',
+            'Realizó la consulta': c.author || '',
+            'Compañía': c.company || '',
+            'Tipo de consulta': c.type || '',
+            'Area solicitante': c.area || '',
+            'Resultado\r\n(POS / NEG)': c.result || '',
+            'Ubicación Archivo': c.filePath || ''
+        }));
+
+        return NextResponse.json({ success: true, data });
     } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+}
+
+export async function POST(req: NextRequest) {
+    try {
+        const { data: newData } = await req.json();
+        const { prisma } = await import('@/lib/prisma');
+
+        if (!newData || !Array.isArray(newData)) {
+            return NextResponse.json({ success: false, message: 'Datos inválidos.' }, { status: 400 });
+        }
+
+        // Wipe and recreate to sync exactly as Excel did
+        await (prisma as any).consultation.deleteMany({});
+        
+        const creates = newData.map((c: any) => ({
+            numProg: parseInt(c['Núm. prog.']) || null,
+            folio: c['folio'] || '',
+            phone: c['Teléfono'] || '',
+            date: c['Fecha consulta'] || '',
+            author: c['Realizó la consulta'] || '',
+            company: c['Compañía'] || '',
+            type: c['Tipo de consulta'] || '',
+            area: c['Area solicitante'] || '',
+            result: c['Resultado\r\n(POS / NEG)'] || c['Resultado'] || '',
+            filePath: c['Ubicación Archivo'] || ''
+        }));
+        
+        await (prisma as any).consultation.createMany({ data: creates });
+
+        return NextResponse.json({ success: true, message: 'Base de datos sincronizada.' });
+    } catch (error: any) {
+        console.error('[ControlData] Save Error:', error);
+        return NextResponse.json({ success: false, message: error.message }, { status: 500 });
     }
 }

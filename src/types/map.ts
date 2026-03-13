@@ -6,6 +6,7 @@ export interface LocationPoint {
     date: string;
     phone: string;
     timestamp: number;
+    antennaSector?: any;
 }
 
 export interface DeviceRecord {

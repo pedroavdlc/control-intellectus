@@ -44,3 +44,19 @@ model FileRecord {
   locations Location[]
   createdAt DateTime   @default(now())
 }
+
+model Consultation {
+  id             String   @id @default(uuid())
+  numProg        Int?     @unique
+  folio          String?
+  phone          String
+  date           String?  // Fecha técnica de la búsqueda / del archivo
+  author         String?  // Quién la pidió
+  company        String?  // AT&T, Telcel, etc.
+  type           String   // 'GEO' o 'SABANA'
+  area           String?
+  result         String?  // 'POSITIVO', 'NEGATIVO', 'PENDIENTE'
+  creditsUsed    Int      @default(1)
+  filePath       String?
+  createdAt      DateTime @default(now())
+}

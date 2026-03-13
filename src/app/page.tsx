@@ -54,6 +54,8 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<any>({});
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastActivity, setLastActivity] = useState<number>(Date.now());
+  const [sidebarMode, setSidebarMode] = useState<'MSISDN' | 'LOCATION'>('MSISDN');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -111,6 +113,25 @@ export default function Dashboard() {
     }
     loadHistory();
   }, []);
+
+  // Auto-clear map markers after 10 minutes of inactivity
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const tenMinutes = 10 * 60 * 1000;
+      if (Date.now() - lastActivity > tenMinutes && (selectedPhone || viewedPoint)) {
+        console.log('[AutoClear] 10 minutes reached. Clearing map.');
+        setSelectedPhone(null);
+        setViewedPoint(null);
+        setAntennaSector(null);
+        setDeviceCenter(null);
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(timer);
+  }, [lastActivity, selectedPhone, viewedPoint]);
+
+  // Reset timer on any key interaction
+  const resetActivity = () => setLastActivity(Date.now());
 
   // Helper to normalize phone numbers for lookup
   const normalizePhone = (p: string) => {
@@ -225,10 +246,16 @@ export default function Dashboard() {
   const markers = useMemo(() => {
     let allMarkers: MapMarker[] = [];
 
+    // START CLEAN: If no phone is selected and no specific point is being viewed, show nothing.
+    if (!selectedPhone && !viewedPoint) return allMarkers;
+
     // When showing all history points for a phone, skip the regular per-device summary markers
     if (showAll && selectedPhone) return allMarkers;
 
     Object.keys(history).forEach(phone => {
+      // Only show the summary markers if this phone is the selected one (or if we really want to show summaries, but user wants clean start)
+      if (phone !== selectedPhone && !viewedPoint) return;
+      
       const lastPoint = history[phone] && history[phone].length > 0 ? history[phone][0] : null;
       if (!lastPoint) return;
 
@@ -417,6 +444,7 @@ export default function Dashboard() {
           // Apply state updates for map visualization
           setAntennaSector(currentSector);
           setDeviceCenter([markerLat, markerLng]);
+          resetActivity();
 
           // Set all modal data for saving
           setModalData({
@@ -499,8 +527,8 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...data,
-        lat: modalData.lat,
-        lng: modalData.lng,
+        lat: data.lat || modalData.lat,
+        lng: data.lng || modalData.lng,
         antennaLat: modalData.antennaLat,
         antennaLng: modalData.antennaLng,
         radius: modalData.radius,
@@ -564,54 +592,106 @@ export default function Dashboard() {
         </div>
 
         <div className="p-4 border-b border-white/5 flex items-center justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest whitespace-nowrap">
-           <div className="flex items-center gap-2"><div className="w-7 h-3 rounded-full bg-zinc-800 border border-white/10 relative"><div className="absolute left-0.5 top-0.5 w-2 h-2 rounded-full bg-zinc-600"></div></div> MSISDNS</div>
-           <div className="flex items-center gap-2"><div className="w-7 h-3 rounded-full bg-blue-500/20 border border-blue-500/50 relative"><div className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full bg-blue-500"></div></div> LOCATIONS</div>
+           <button 
+             onClick={() => setSidebarMode('MSISDN')}
+             className={`flex items-center gap-2 transition-opacity ${sidebarMode === 'MSISDN' ? 'opacity-100' : 'opacity-40 hover:opacity-100'}`}
+           >
+              <div className={`w-7 h-3 rounded-full border border-white/10 relative transition-colors ${sidebarMode === 'MSISDN' ? 'bg-blue-500' : 'bg-zinc-800'}`}>
+                <div className={`absolute top-0.5 w-2 h-2 rounded-full transition-all ${sidebarMode === 'MSISDN' ? 'right-0.5 bg-white' : 'left-0.5 bg-zinc-600'}`}></div>
+              </div> MSISDNS
+           </button>
+           <button 
+             onClick={() => setSidebarMode('LOCATION')}
+             className={`flex items-center gap-2 transition-opacity ${sidebarMode === 'LOCATION' ? 'opacity-100' : 'opacity-40 hover:opacity-100'}`}
+           >
+              <div className={`w-7 h-3 rounded-full border border-white/10 relative transition-colors ${sidebarMode === 'LOCATION' ? 'bg-blue-500' : 'bg-zinc-800'}`}>
+                <div className={`absolute top-0.5 w-2 h-2 rounded-full transition-all ${sidebarMode === 'LOCATION' ? 'right-0.5 bg-white' : 'left-0.5 bg-zinc-600'}`}></div>
+              </div> LOCATIONS
+           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-1 bg-zinc-950/50 min-w-[320px]">
-             {Object.keys(history)
-                .filter(key => history[key] && history[key].length > 0)
-                .sort((a, b) => {
-                  const timeA = new Date(history[a][0].createdAt).getTime();
-                  const timeB = new Date(history[b][0].createdAt).getTime();
-                  return timeB - timeA;
-                })
-                .map(phone => {
-                  const isActive = selectedPhone === phone;
-                  return (
-                    <button key={phone} onClick={() => { 
-                          setSelectedPhone(phone); 
-                          setActiveTimelineIndex(0); 
-                          if (history[phone] && history[phone].length > 0) {
-                              setShowAll(false);
-                              const recent = history[phone][0];
-                              setViewedPoint([recent.lat, recent.lng]);
-                              setDeviceCenter([recent.lat, recent.lng]);
-                              setCameraFlyTo([recent.lat, recent.lng]);
-                          } else {
-                              setShowAll(true);
-                              setViewedPoint(null);
-                          }
-                      }} 
-                            className={`w-full flex items-center justify-between px-3 py-3 rounded-lg border transition-all duration-200 group text-left ${isActive ? 'bg-blue-600/10 border-blue-500/30' : 'bg-transparent border-transparent text-zinc-400 hover:bg-zinc-900 hover:border-white/5'}`}>
-                      <div className="flex items-center gap-3 w-full">
-                        <PhoneCall size={12} className={isActive ? 'text-blue-400' : 'text-zinc-600 group-hover:text-zinc-400'} />
-                        <span className={`text-xs font-mono tracking-tight flex-1 ${isActive ? 'text-blue-100 font-bold' : 'font-medium'}`}>{phone}</span>
-                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]" />}
-                      </div>
+             {sidebarMode === 'MSISDN' ? (
+                 Object.keys(history)
+                    .filter(key => history[key] && history[key].length > 0)
+                    .sort((a, b) => {
+                      const timeA = new Date(history[a][0].createdAt).getTime();
+                      const timeB = new Date(history[b][0].createdAt).getTime();
+                      return timeB - timeA;
+                    })
+                    .map(phone => {
+                      const isActive = selectedPhone === phone;
+                      return (
+                        <button key={phone} onClick={() => { 
+                              setSelectedPhone(phone); 
+                              setActiveTimelineIndex(0); 
+                              if (history[phone] && history[phone].length > 0) {
+                                  setShowAll(false);
+                                  const recent = history[phone][0];
+                                  setViewedPoint([recent.lat, recent.lng]);
+                                  setDeviceCenter([recent.lat, recent.lng]);
+                                  setCameraFlyTo([recent.lat, recent.lng]);
+                              } else {
+                                  setShowAll(true);
+                                  setViewedPoint(null);
+                              }
+                              resetActivity();
+                            }} 
+                            className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group border flex flex-col gap-1.5 ${isActive ? 'bg-blue-600 text-white border-blue-400 shadow-[0_10px_30px_rgba(37,99,235,0.3)] scale-[1.02] z-10' : 'bg-zinc-900/40 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:border-white/10'}`}
+                          >
+                          <div className="flex items-center justify-between pointer-events-none">
+                            <span className={`text-[11px] font-black tracking-widest ${isActive ? 'text-blue-100' : 'text-zinc-500 group-hover:text-blue-400'}`}>MSISDN</span>
+                            <span className={`text-[10px] font-bold ${isActive ? 'text-blue-200/60' : 'text-zinc-600'}`}>{history[phone].length} pts</span>
+                          </div>
+                          <div className="flex items-center gap-3 pointer-events-none">
+                            <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white shadow-[0_0_8px_#fff]' : 'bg-blue-500'}`} />
+                            <span className="text-sm font-black tracking-tight font-mono">{phone}</span>
+                          </div>
+                          <p className={`text-[9px] font-bold uppercase tracking-wider mt-1 pointer-events-none ${isActive ? 'text-blue-100/50' : 'text-zinc-600'}`}>
+                            {history[phone][0]?.company || 'Carrier Unknown'} • {history[phone][0]?.date.split(' ')[0]}
+                          </p>
+                        </button>
+                      );
+                    })
+             ) : (
+                // LOCATIONS MODE: Show points directly
+                Object.keys(history).flatMap(k => history[k]).slice(0, 50).map((pt, i) => (
+                    <button key={`loc-${i}`} onClick={() => {
+                        setSelectedPhone(pt.phone || '');
+                        setViewedPoint([pt.lat, pt.lng]);
+                        setDeviceCenter([pt.lat, pt.lng]);
+                        setCameraFlyTo([pt.lat, pt.lng]);
+                        resetActivity();
+                    }} className="w-full text-left p-3 rounded-xl bg-zinc-900/20 border border-white/5 hover:bg-zinc-800 transition-all flex flex-col gap-1">
+                        <div className="flex justify-between items-center">
+                            <span className="text-[8px] font-bold text-blue-400 uppercase">{pt.phone}</span>
+                            <span className="text-[7px] text-zinc-600 font-mono">{pt.date}</span>
+                        </div>
+                        <span className="text-[10px] text-zinc-300 truncate font-medium">{pt.address || 'Location Point'}</span>
                     </button>
-                  );
-                })}
+                ))
+             )}
         </div>
         
-        <div className="p-4 border-t border-white/5 bg-zinc-900/20 min-w-[320px]">
+        <div className="p-4 border-t border-white/5 bg-zinc-900/20 min-w-[320px] space-y-2">
+          <button 
+            onClick={() => {
+              setModalData({ type: 'GEO' });
+              setIsModalOpen(true);
+            }}
+            className="w-full h-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold uppercase tracking-widest text-[9px] flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5"
+          >
+            <Plus size={14} />
+            Registro Manual
+          </button>
+
           <button 
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessing}
             className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:opacity-50 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-blue-500/20 border border-blue-400/20"
           >
             {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <PlusCircle size={16} />}
-            {isProcessing ? 'Procesando...' : 'Cargar Nuevo'}
+            {isProcessing ? 'Procesando...' : 'Cargar Archivo'}
           </button>
           <input 
             type="file" 
@@ -677,8 +757,16 @@ export default function Dashboard() {
             {/* Action Bar (Top of map) */}
             <div className="absolute top-4 left-6 right-4 z-[500] pointer-events-none flex justify-between">
                 <div className="bg-[#09090b]/80 backdrop-blur pointer-events-auto rounded shadow-lg border border-white/10 flex p-1">
-                   <button className="px-3 py-1 bg-zinc-900/50 hover:bg-zinc-800 border border-white/5 text-xs font-bold text-zinc-300 rounded transition-colors">Discovery Summary</button>
-                   <button className="px-3 py-1 hover:bg-zinc-800 border border-transparent text-xs font-bold text-zinc-400 rounded flex gap-2 items-center transition-colors">
+                   <button 
+                     onClick={() => alert(`Resumen Discovery:\nTotal MSISDNs: ${Object.keys(history).length}\nTotal Puntos: ${Object.values(history).flat().length}\nEstado: Operacional`)}
+                     className="px-3 py-1 bg-zinc-900/50 hover:bg-zinc-800 border border-white/5 text-xs font-bold text-zinc-300 rounded transition-colors active:scale-95"
+                   >
+                     Discovery Summary
+                   </button>
+                   <button 
+                     onClick={() => fileInputRef.current?.click()}
+                     className="px-3 py-1 hover:bg-zinc-800 border border-transparent text-xs font-bold text-zinc-400 rounded flex gap-2 items-center transition-colors active:scale-95"
+                   >
                        Locate new <Crosshair size={12} className="text-blue-500"/>
                    </button>
                    {selectedPhone && (
@@ -706,6 +794,7 @@ export default function Dashboard() {
                     setViewedPoint([point.lat, point.lng]);
                     setDeviceCenter([point.lat, point.lng]);
                     setAntennaSector(point.antennaSector || null);
+                    resetActivity();
                   }}
                   onViewPDF={(fileId) => window.open(`/api/files/${fileId}`, '_blank')}
                 />

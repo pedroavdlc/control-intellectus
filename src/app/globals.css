@@ -1,9 +1,26 @@
 @import "tailwindcss";
 
+/* 
+  Configuración del Tema para Tailwind v4
+  Aquí mapeamos las variables de CSS a utilidades de Tailwind
+*/
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* Usamos las variables de fuente cargadas en layout.tsx */
+  --font-sans: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Mapeo de colores para poder usar clases como text-primary, bg-sidebar, etc. */
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-sidebar: var(--sidebar);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
 }
+
+/* Importación de Leaflet (necesaria para el mapa) */
+@import "leaflet/dist/leaflet.css";
 
 :root {
   --background: #09090b; /* Zinc 950 */
@@ -12,7 +29,7 @@
   --secondary: #0ea5e9;
   --accent: #f59e0b;
   --sidebar: #18181b; /* Zinc 900 */
-  --card: rgba(24, 24, 27, 0.7); /* Zinc 900 translucent */
+  --card: rgba(24, 24, 27, 0.7); /* Zinc 900 translúcido */
   --card-foreground: #fafafa;
   --border: rgba(255, 255, 255, 0.08);
 }
@@ -25,6 +42,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Estilos de Efecto Glass */
 .glass {
   background: var(--card);
   backdrop-filter: blur(16px);
@@ -33,32 +51,31 @@ body {
   box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.5);
 }
 
-/* Typography polish for enterprise look */
+/* Pulido de Tipografía */
 h1, h2, h3, h4 {
   letter-spacing: -0.02em;
   font-weight: 700;
 }
 
-/* Leaflet maps need explicit height */
+/* Configuración de Leaflet */
 .leaflet-container {
   width: 100%;
   height: 100%;
   border-radius: 0;
-  background: #09090b !important; /* blend map bg */
+  background: #09090b !important;
   filter: contrast(1.1) brightness(0.9);
 }
 
-
-/* Hide scrollbar completely */
+/* Utilidad para ocultar scrollbars */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 .no-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-/* Transition for enterprise feel (subtle) */
+/* Transición suave para tarjetas */
 .card-hover {
   transition: all 0.2s ease-in-out;
 }

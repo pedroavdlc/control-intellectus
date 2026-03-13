@@ -17,8 +17,9 @@ import { useState } from 'react';
 const menuItems = [
     { name: 'Panel Maestro', icon: LayoutDashboard, path: '/' },
     { name: 'Control de Excel', icon: Database, path: '/control' },
+    { name: 'Auditoría Interna', icon: BarChart3, path: '/auditoria' },
     { name: 'Fichas Tácticas', icon: FileText, path: '/pdfs' },
-    { name: 'Análisis Sabana', icon: BarChart3, path: '/excel' },
+    { name: 'Análisis Sabana', icon: FileSpreadsheet, path: '/excel' },
     { name: 'Monitor Activo', icon: MapIcon, path: '/geo' },
 ];
 

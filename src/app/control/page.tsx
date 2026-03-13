@@ -34,11 +34,67 @@ export default function SearchControlPage() {
         fetchData();
     }, []);
 
+    const parseDataDate = (dStr: string) => {
+        if (!dStr) return 0;
+        const m = dStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[\s,]+(\d{1,2}):(\d{2})/);
+        if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:00`).getTime();
+        return new Date(dStr).getTime() || 0;
+    };
+
     const filteredData = data.filter(item =>
         Object.values(item).some(val =>
             String(val).toLowerCase().includes(searchTerm.toLowerCase())
         )
-    ).reverse(); // Most recent first
+    ).sort((a, b) => {
+        const numA = parseInt(a['Núm. prog.']) || 0;
+        const numB = parseInt(b['Núm. prog.']) || 0;
+        if (numA !== numB) return numB - numA;
+        return parseDataDate(b['Fecha consulta']) - parseDataDate(a['Fecha consulta']);
+    });
+
+    const handleDataChange = async (newData: any[]) => {
+        setData(newData);
+        await syncWithServer(newData);
+    };
+
+    const handleDelete = async (rowIdx: number) => {
+        if (!confirm('¿Estás seguro de eliminar este registro del Excel? Esta acción no se puede deshacer.')) return;
+        
+        // Find the absolute index in the original data to delete correctly
+        const itemToDelete = filteredData[rowIdx];
+        const newData = data.filter(item => item !== itemToDelete);
+        
+        setData(newData);
+        await syncWithServer(newData);
+    };
+
+    const syncWithServer = async (newData: any[]) => {
+        try {
+            const res = await fetch('/api/intellectus/control-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: newData })
+            });
+            const result = await res.json();
+            if (!result.success) {
+                alert('⚠️ No se pudo guardar en el Excel: ' + result.message);
+                fetchData();
+            }
+        } catch (e) {
+            console.error('Save error:', e);
+            alert('Error de conexión al intentar guardar.');
+            fetchData();
+        }
+    };
+
+    // Calculate Top Agent
+    const agentStats = data.reduce((acc: any, curr: any) => {
+        const agent = curr['Realizó la consulta'] || 'DESCONOCIDO';
+        acc[agent] = (acc[agent] || 0) + 1;
+        return acc;
+    }, {});
+
+    const topAgent = Object.entries(agentStats).sort((a: any, b: any) => b[1] - a[1])[0] || ['-', 0];
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
@@ -68,10 +124,11 @@ export default function SearchControlPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <StatItem label="Total Registros" value={data.length} color="text-indigo-400" />
-                <StatItem label="Positivos (GEO)" value={data.filter(d => String(d['Resultado\r\n(POS / NEG)']).toLowerCase().includes('pos')).length} color="text-emerald-400" />
-                <StatItem label="Negativos" value={data.filter(d => String(d['Resultado\r\n(POS / NEG)']).toLowerCase().includes('neg')).length} color="text-rose-400" />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <StatItem label="Total Registros" value={data.length} color="text-white" />
+                <StatItem label="Top Agente" value={topAgent[0]} subValue={`${topAgent[1]} solicitudes`} color="text-indigo-400" />
+                <StatItem label="Positivos (GEO)" value={data.filter(d => String(d['Resultado\r\n(POS / NEG)']).includes('POSITIVO')).length} color="text-emerald-400" />
+                <StatItem label="Pendientes" value={data.filter(d => String(d['Resultado\r\n(POS / NEG)']).includes('PENDIENTE')).length} color="text-orange-400" />
             </div>
 
             <div className="glass rounded-[2.5rem] border border-white/5 overflow-hidden shadow-2xl min-h-[500px] relative">
@@ -100,6 +157,8 @@ export default function SearchControlPage() {
                     <DataTable
                         data={filteredData}
                         columns={data.length > 0 ? Object.keys(data[0]) : []}
+                        onDataChange={handleDataChange}
+                        onDelete={handleDelete}
                     />
                 )}
             </div>
@@ -107,11 +166,12 @@ export default function SearchControlPage() {
     );
 }
 
-function StatItem({ label, value, color }: any) {
+function StatItem({ label, value, subValue, color }: any) {
     return (
         <div className="glass p-6 rounded-3xl border border-white/5 flex flex-col gap-1">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{label}</span>
-            <span className={`text-3xl font-black ${color}`}>{value}</span>
+            <span className={`text-xl font-black truncate ${color}`}>{value}</span>
+            {subValue && <span className="text-[10px] text-slate-400 font-bold">{subValue}</span>}
         </div>
     );
 }

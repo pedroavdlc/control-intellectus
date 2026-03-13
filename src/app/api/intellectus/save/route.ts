@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import * as xlsx from 'xlsx';
+import { prisma } from '@/lib/prisma';
 
 const BASE_STORAGE = "C:\\Users\\SO\\Videos\\archivos wed intellectus";
 const FILE_CONTROL = "CONTROL DE GEOS Y SABANAS.xlsx";
-const FILE_REPORT = "Formato Reporte consumo mensual Intellectus ENERO - FEBRERO.xlsx";
+const FILE_REPORT = "Formato Reporte consumo mensual Intellectus MARZO - ABRIL.xlsx";
 
 const normalizePhone = (p: string) => {
     const clean = (p || '').replace(/\D/g, '');
@@ -30,7 +31,8 @@ export async function POST(req: NextRequest) {
             creditsApplied,
             phone,
             fileContent,
-            fileName
+            fileName,
+            fileId
         } = body;
 
         let numProg = userNumProg;
@@ -84,7 +86,24 @@ export async function POST(req: NextRequest) {
         }
 
         let filePath = "";
-        if (fileContent && fileName) {
+
+        if (fileId) {
+            try {
+                const fileRecord = await prisma.fileRecord.findUnique({ where: { id: fileId } });
+                if (fileRecord) {
+                    const originalPath = fileRecord.filePath.startsWith('/') 
+                        ? path.join(process.cwd(), fileRecord.filePath)
+                        : fileRecord.filePath;
+                    if (fs.existsSync(originalPath)) {
+                        filePath = path.join(typeDir, fileRecord.fileName);
+                        fs.copyFileSync(originalPath, filePath);
+                        console.log(`[Save] Copied file from ${originalPath} to ${filePath}`);
+                    }
+                }
+            } catch (err: any) {
+                console.warn('[Save] Error copying file from ID:', err.message);
+            }
+        } else if (fileContent && fileName) {
             try {
                 filePath = path.join(typeDir, fileName);
                 const buffer = Buffer.from(fileContent, 'base64');
@@ -98,16 +117,17 @@ export async function POST(req: NextRequest) {
         console.log(`[Save] Preparing to save to control Excel. wbControl exists: ${!!wbControl}`);
         try {
             if (wbControl) {
+                // Ensure all texts are UPPERCASE before writing to Excel
                 controlData.push({
                     'Núm. prog.': numProg,
-                    'folio': folio || '',
-                    'Teléfono': phone || '',
+                    'folio': (folio || '').toString().toUpperCase(),
+                    'Teléfono': (phone || '').toString().toUpperCase(),
                     'Fecha consulta': date,
-                    'Realizó la consulta': author,
-                    'Compañía': company,
-                    'Tipo de consulta': type,
-                    'Area solicitante': area,
-                    'Resultado\r\n(POS / NEG)': result,
+                    'Realizó la consulta': (author || '').toUpperCase(),
+                    'Compañía': (company || '').toUpperCase(),
+                    'Tipo de consulta': (type || '').toUpperCase(),
+                    'Area solicitante': (area || '').toUpperCase(),
+                    'Resultado\r\n(POS / NEG)': (result || '').toUpperCase(),
                     'Latitud': body.lat || '',
                     'Longitud': body.lng || '',
                     'Antenna Lat': body.antennaLat || '',
@@ -154,12 +174,12 @@ export async function POST(req: NextRequest) {
                 }
 
                 const ws = wb.Sheets[sheetName] || wb.Sheets[wb.SheetNames[0]];
-                const rows: any[] = xlsx.utils.sheet_to_json(ws, { range: 5, header: 1 });
+                const rows: any[] = xlsx.utils.sheet_to_json(ws, { range: 4, header: 1 });
 
                 const newRow = [
-                    numProg, date, author, company, type || 'GEO', area,
-                    creditsAvailable || 0, creditsApplied || 1,
-                    ((creditsAvailable || 0) - (creditsApplied || 1)), result
+                    numProg, date, (author || '').toUpperCase(), (company || '').toUpperCase(), (type || 'GEO').toUpperCase(), (area || '').toUpperCase(),
+                    body.creditsAvailable || 0, body.creditsApplied || 1,
+                    ((body.creditsAvailable || 0) - (body.creditsApplied || 1)), (result || '').toUpperCase()
                 ];
 
                 rows.push(newRow);
@@ -228,6 +248,29 @@ export async function POST(req: NextRequest) {
             } catch (dbError) {
                 console.error('[DB] Failed to save history to database:', dbError);
             }
+        }
+
+        // Siempre guardar la pista de auditoría (incluyendo Sabanas)
+        try {
+            const { prisma } = await import('@/lib/prisma');
+            await (prisma as any).consultation.create({
+                data: {
+                    numProg: numProg || null,
+                    folio: (folio || '').toString().toUpperCase(),
+                    phone: (phone || '').toString().toUpperCase(),
+                    date: date || new Date().toISOString(),
+                    author: (author || '').toUpperCase(),
+                    company: (company || '').toUpperCase(),
+                    type: (type || 'GEO').toUpperCase(),
+                    area: (area || '').toUpperCase(),
+                    result: (result || '').toUpperCase(),
+                    creditsUsed: (body.creditsApplied || 1),
+                    filePath: filePath ? String(filePath) : null
+                }
+            });
+            console.log(`[Save] Consultation Audit properly saved to SQL.`);
+        } catch (auditErr: any) {
+            console.error('[Save] Error saving to SQL Consultation Table:', auditErr);
         }
 
         return NextResponse.json({

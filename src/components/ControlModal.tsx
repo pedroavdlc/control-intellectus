@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, X, User, MapPin, Phone, Hash, Database, CheckCircle2, AlertCircle, ExternalLink, Activity, Loader2 } from 'lucide-react';
+import { Save, X, User, MapPin, Phone, Hash, Database, CheckCircle2, AlertCircle, ExternalLink, Activity, Loader2, Clock } from 'lucide-react';
 
 interface ControlEntry {
     numProg: number;
@@ -10,7 +10,7 @@ interface ControlEntry {
     company: string;
     type: 'GEO' | 'Sabana';
     area: string;
-    result: 'Positivo' | 'Negativo';
+    result: 'Positivo' | 'Negativo' | 'Pendiente';
     folio: string;
     creditsAvailable: number;
     creditsApplied: number;
@@ -36,12 +36,25 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
         company: '',
         type: 'GEO',
         area: '',
-        result: 'Negativo',
+        result: 'Pendiente',
         folio: '',
-        creditsAvailable: 0,
-        creditsApplied: 1,
+        creditsAvailable: 1000,
+        creditsApplied: 0,
         phone: ''
     });
+
+    // Default creditsApplied logic: AT&T for GEO = 2 credits, else 1. Sabanas = 1.
+    useEffect(() => {
+        const isATT = formData.company.toUpperCase().includes('AT&T') || formData.company.toUpperCase().includes('IUSACELL');
+        
+        if (formData.type === 'GEO') {
+            const defaultCredits = isATT ? 2 : 1;
+            // Only update if it was the previous default or zero (to avoid overwriting manual changes)
+            setFormData(prev => ({ ...prev, creditsApplied: defaultCredits }));
+        } else if (formData.type === 'Sabana') {
+            setFormData(prev => ({ ...prev, creditsApplied: 1, result: 'Pendiente' }));
+        }
+    }, [formData.type, formData.company]);
 
     const [isSaving, setIsSaving] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -62,7 +75,14 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
         if (typeof window !== 'undefined' && isOpen) {
             const savedAuthor = localStorage.getItem('intellectus_agent') || '';
             const savedArea = localStorage.getItem('intellectus_area') || '';
-            const savedCredits = parseInt(localStorage.getItem('intellectus_credits') || '0');
+            const creditString = localStorage.getItem('intellectus_credits');
+            let savedCredits = 1000;
+            if (creditString) {
+                const parsed = parseInt(creditString);
+                if (!isNaN(parsed) && parsed > 0) {
+                    savedCredits = parsed;
+                }
+            }
 
             // Load unique lists for autocomplete
             const savedAuthors = JSON.parse(localStorage.getItem('intellectus_authors_list') || '[]');
@@ -83,14 +103,22 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                 area: savedArea,
                 creditsAvailable: savedCredits,
                 company: company,
-                result: (initialData.result as any) || 'Negativo',
+                result: (initialData.result as any) || (initialData.type === 'Sabana' ? 'Pendiente' : 'Negativo'),
                 folio: initialData.folio || '',
                 date: initialData.date || prev.date, // Use report date if available
                 type: (initialData.type as any) || 'GEO',
-                phone: phone
+                phone: initialData.phone || ''
             }));
         }
     }, [initialData, isOpen, knownProviders]);
+
+    // Auto-sync Folio and Phone
+    useEffect(() => {
+        // If phone changes and folio is empty or was previous phone, update folio
+        if (formData.phone && !formData.folio) {
+            setFormData(prev => ({ ...prev, folio: prev.phone }));
+        }
+    }, [formData.phone]);
 
     // Update company whenever phone changes manually
     useEffect(() => {
@@ -108,26 +136,37 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
     const handleSave = async () => {
         setIsSaving(true);
 
-        // Save current selection as default
-        localStorage.setItem('intellectus_agent', formData.author);
-        localStorage.setItem('intellectus_area', formData.area);
-        localStorage.setItem('intellectus_credits', (formData.creditsAvailable - formData.creditsApplied).toString());
+        // Convert everything to UPPERCASE before saving
+        const finalData: ControlEntry = {
+            ...formData,
+            author: formData.author.toUpperCase().trim(),
+            company: formData.company.toUpperCase().trim(),
+            area: formData.area.toUpperCase().trim(),
+            folio: formData.folio.toUpperCase().trim(),
+            phone: formData.phone.trim(), // Keep phone original but trimmed
+            result: formData.result.toUpperCase() as any
+        };
 
-        // Update autocomplete lists
-        if (formData.author) {
-            const updatedAuthors = Array.from(new Set([...authors, formData.author])).sort();
+        // Save current selection as default (also in uppercase)
+        localStorage.setItem('intellectus_agent', finalData.author);
+        localStorage.setItem('intellectus_area', finalData.area);
+        localStorage.setItem('intellectus_credits', (finalData.creditsAvailable - finalData.creditsApplied).toString());
+
+        // Update autocomplete lists (UPPERCASE and Unique)
+        if (finalData.author) {
+            const updatedAuthors = Array.from(new Set([...authors, finalData.author])).sort();
             localStorage.setItem('intellectus_authors_list', JSON.stringify(updatedAuthors));
         }
-        if (formData.area) {
-            const updatedAreas = Array.from(new Set([...areas, formData.area])).sort();
+        if (finalData.area) {
+            const updatedAreas = Array.from(new Set([...areas, finalData.area])).sort();
             localStorage.setItem('intellectus_areas_list', JSON.stringify(updatedAreas));
         }
-        if (formData.company) {
-            const updatedCompanies = Array.from(new Set([...companies, formData.company])).sort();
+        if (finalData.company) {
+            const updatedCompanies = Array.from(new Set([...companies, finalData.company])).sort();
             localStorage.setItem('intellectus_companies_list', JSON.stringify(updatedCompanies));
         }
 
-        await onSave(formData);
+        await onSave(finalData);
         setIsSaving(false);
         onClose();
     };
@@ -173,7 +212,12 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                                 Cálculo Automático
                             </div>
                         </div>
-                        <Input icon={Hash} label="Folio" value={formData.folio} onChange={(v: string) => setFormData({ ...formData, folio: v })} />
+                        <Input 
+                            icon={Phone} 
+                            label="Teléfono / Folio" 
+                            value={formData.phone} 
+                            onChange={(v: string) => setFormData({ ...formData, phone: v, folio: v })} 
+                        />
                         <Input
                             icon={User}
                             label="Realizó la consulta"
@@ -190,7 +234,6 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                             list="areas-list"
                             options={areas}
                         />
-                        <Input icon={Phone} label="Teléfono" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} />
                     </div>
 
                     <div className="space-y-4">
@@ -214,37 +257,81 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                             />
                         </div>
 
+                        <div className="space-y-2">
+                            <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Tipo de Registro</p>
+                            <select className="w-full bg-slate-900 border border-white/5 rounded-2xl py-3 px-4 text-sm text-white focus:outline-none focus:border-indigo-500/50" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value as any })}>
+                                <option value="GEO">Geolocalización (PDF)</option>
+                                <option value="Sabana">Sábana (Excel)</option>
+                            </select>
+                        </div>
+
+
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Tipo</p>
-                                <select className="w-full bg-slate-900 border border-white/5 rounded-2xl py-3 px-4 text-sm text-white focus:outline-none focus:border-indigo-500/50" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value as any })}>
-                                    <option value="GEO">Geolocalización</option>
-                                    <option value="Sabana">Sábana</option>
-                                </select>
+                            <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                                <p className="text-[10px] font-bold text-indigo-400 uppercase px-1">
+                                    Créditos Disponibles
+                                </p>
+                                <div className="relative">
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-500">
+                                        <Database size={16} />
+                                    </div>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl py-3 pl-12 pr-6 text-sm text-white focus:outline-none focus:border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.1)] font-bold"
+                                        value={formData.creditsAvailable === undefined ? "" : formData.creditsAvailable}
+                                        onChange={e => {
+                                            const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                                            setFormData({ ...formData, creditsAvailable: isNaN(val) ? 0 : val });
+                                        }}
+                                        placeholder="1000"
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Créditos Disp.</p>
-                                <input
-                                    type="number"
-                                    className="w-full bg-slate-900 border border-white/5 rounded-2xl py-3 px-4 text-sm text-white focus:outline-none focus:border-indigo-500/50"
-                                    value={isNaN(formData.creditsAvailable) ? "" : formData.creditsAvailable}
-                                    onChange={e => {
-                                        const val = parseInt(e.target.value);
-                                        setFormData({ ...formData, creditsAvailable: isNaN(val) ? 0 : val });
-                                    }}
-                                />
+                            <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                                <p className="text-[10px] font-bold text-indigo-400 uppercase px-1">
+                                    {formData.type === 'GEO' ? 'Créditos por Consulta' : 'Créditos Usados'}
+                                </p>
+                                <div className="relative">
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-500">
+                                        <Activity size={16} />
+                                    </div>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-slate-900 border border-indigo-500/30 rounded-2xl py-3 pl-12 pr-6 text-sm text-white focus:outline-none focus:border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.1)] font-bold"
+                                        value={!formData.creditsApplied || isNaN(formData.creditsApplied) ? "" : formData.creditsApplied}
+                                        onChange={e => {
+                                            const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                                            setFormData({ ...formData, creditsApplied: isNaN(val) ? 0 : val });
+                                        }}
+                                        placeholder="0"
+                                    />
+                                </div>
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Resultado</p>
-                            <div className="flex gap-4">
-                                <button onClick={() => setFormData({ ...formData, result: 'Positivo' })} className={`flex-1 py-3 rounded-2xl text-xs font-black uppercase flex items-center justify-center gap-2 border transition-all ${formData.result === 'Positivo' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-lg shadow-emerald-500/10' : 'bg-slate-900 text-slate-500 border-white/5'}`}>
-                                    <CheckCircle2 size={16} /> Positivo
-                                </button>
-                                <button onClick={() => setFormData({ ...formData, result: 'Negativo' })} className={`flex-1 py-3 rounded-2xl text-xs font-black uppercase flex items-center justify-center gap-2 border transition-all ${formData.result === 'Negativo' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-lg shadow-rose-500/10' : 'bg-slate-900 text-slate-500 border-white/5'}`}>
-                                    <AlertCircle size={16} /> Negativo
-                                </button>
+                            <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Resultado de Búsqueda</p>
+                            <div className="relative group">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400">
+                                    {formData.result === 'Positivo' && <CheckCircle2 size={16} className="text-emerald-400" />}
+                                    {formData.result === 'Negativo' && <AlertCircle size={16} className="text-rose-400" />}
+                                    {formData.result === 'Pendiente' && <Clock size={16} className="text-orange-400" />}
+                                </div>
+                                <select 
+                                    className={`w-full bg-slate-900 border border-white/5 rounded-2xl py-3 pl-12 pr-6 text-sm font-bold appearance-none focus:outline-none focus:border-indigo-500/50 transition-all ${
+                                        formData.result === 'Positivo' ? 'text-emerald-400' : 
+                                        formData.result === 'Negativo' ? 'text-rose-400' : 'text-orange-400'
+                                    }`}
+                                    value={formData.result} 
+                                    onChange={e => setFormData({ ...formData, result: e.target.value as any })}
+                                >
+                                    <option value="Pendiente" className="text-orange-400 bg-slate-900">PENDIENTE</option>
+                                    <option value="Positivo" className="text-emerald-400 bg-slate-900">POSITIVO</option>
+                                    <option value="Negativo" className="text-rose-400 bg-slate-900">NEGATIVO</option>
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-600">
+                                    <Activity size={12} />
+                                </div>
                             </div>
                         </div>
                     </div>

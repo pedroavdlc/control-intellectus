@@ -8,9 +8,10 @@ interface DataTableProps {
     columns: string[];
     data: any[];
     onDataChange?: (newData: any[]) => void;
+    onDelete?: (rowIdx: number) => void;
 }
 
-export default function DataTable({ columns, data, onDataChange }: DataTableProps) {
+export default function DataTable({ columns, data, onDataChange, onDelete }: DataTableProps) {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [localData, setLocalData] = useState<any[]>(data);
@@ -104,16 +105,34 @@ export default function DataTable({ columns, data, onDataChange }: DataTableProp
                                         >
                                             {editingCell?.row === actualRowIdx && editingCell?.col === col ? (
                                                 <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                    <input
-                                                        autoFocus
-                                                        className="bg-zinc-900 border border-blue-500 border-b rounded px-2 py-1 text-white w-full outline-none text-xs"
-                                                        value={editValue}
-                                                        onChange={e => setEditValue(e.target.value)}
-                                                        onKeyDown={e => {
-                                                            if (e.key === 'Enter') saveEdit();
-                                                            if (e.key === 'Escape') setEditingCell(null);
-                                                        }}
-                                                    />
+                                                    {(col.includes('Resultado') || col.includes('POS / NEG')) ? (
+                                                        <select
+                                                            autoFocus
+                                                            className="bg-zinc-900 border border-blue-500 rounded px-2 py-1 text-white w-full outline-none text-xs font-bold"
+                                                            value={editValue}
+                                                            onChange={e => setEditValue(e.target.value)}
+                                                            onBlur={saveEdit}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveEdit();
+                                                                if (e.key === 'Escape') setEditingCell(null);
+                                                            }}
+                                                        >
+                                                            <option value="Pendiente">PENDIENTE</option>
+                                                            <option value="Positivo">POSITIVO</option>
+                                                            <option value="Negativo">NEGATIVO</option>
+                                                        </select>
+                                                    ) : (
+                                                        <input
+                                                            autoFocus
+                                                            className="bg-zinc-900 border border-blue-500 border-b rounded px-2 py-1 text-white w-full outline-none text-xs"
+                                                            value={editValue}
+                                                            onChange={e => setEditValue(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveEdit();
+                                                                if (e.key === 'Escape') setEditingCell(null);
+                                                            }}
+                                                        />
+                                                    )}
                                                     <button onClick={saveEdit} className="text-emerald-500 hover:text-emerald-400 p-1"><Save size={14} /></button>
                                                     <button onClick={() => setEditingCell(null)} className="text-red-500 hover:text-red-400 p-1"><X size={14} /></button>
                                                 </div>
@@ -141,7 +160,10 @@ export default function DataTable({ columns, data, onDataChange }: DataTableProp
                                         </td>
                                     ))}
                                     <td className="px-4 py-2 text-right">
-                                        <button className="p-2 rounded-lg hover:bg-red-500/10 text-red-500/30 hover:text-red-500 transition-all">
+                                        <button 
+                                            onClick={() => onDelete && onDelete(actualRowIdx)}
+                                            className="p-2 rounded-lg hover:bg-red-500/10 text-red-500/30 hover:text-red-500 transition-all"
+                                        >
                                             <Trash2 size={14} />
                                         </button>
                                     </td>

@@ -67,7 +67,7 @@ const InfrastructureIcon = L.divIcon({
 
 // ─── Main Component ───
 export default function Map(props: any) {
-    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, extraMarkers = [] } = props;
+    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, antennaSectors = [], extraMarkers = [] } = props;
     const [mounted, setMounted] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -92,12 +92,13 @@ export default function Map(props: any) {
             <style>{`@keyframes leaflet-ping { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.8); opacity: 0; } } .leaflet-marker-icon { background: none !important; border: none !important; }`}</style>
             
             <MapContainer 
-                key={`map-inst-${center[0]}-${center[1]}`}
+                id="main-map-container"
                 center={center} 
                 zoom={zoom} 
                 scrollWheelZoom={true} 
-                zoomControl={false}
+                zoomControl={true}
                 style={{ height: '100%', width: '100%' }}
+                className="z-0"
             >
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer name="OpenStreetMap" checked>
@@ -157,6 +158,19 @@ export default function Map(props: any) {
                     );
                 })()}
 
+                {antennaSectors?.map((sec: any, idx: number) => {
+                    if (!sec) return null;
+                    const hw = (sec.widthDeg ?? 120) / 2;
+                    const pts = createSectorPoints(sec.lat, sec.lng, sec.azimuth, sec.range, hw);
+                    const isConf = sec.azimuthSource === 'opencellid';
+                    return (
+                        <React.Fragment key={`sec-${idx}`}>
+                            <Circle center={[sec.lat, sec.lng]} radius={sec.range} pathOptions={{ color: '#ef4444', fillOpacity: 0, weight: 1, dashArray: '6 4' }} />
+                            <Polygon positions={pts} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: isConf ? 0.3 : 0.18, weight: 2, dashArray: isConf ? undefined : '8 4' }} />
+                        </React.Fragment>
+                    );
+                })}
+
                 {extraMarkers.length > 1 && <Polyline positions={extraMarkers.map((m: any) => [m.lat, m.lng])} pathOptions={{ color: '#06b6d4', weight: 3, dashArray: '8, 12', opacity: 0.6 }} />}
 
                 {extraMarkers.map((m: any, idx: number) => {
@@ -173,14 +187,6 @@ export default function Map(props: any) {
                 })}
 
                 <MapController center={center} zoom={zoom} flyTo={cameraFlyTo} flyToZoom={18} />
-                
-                {/* Repositioned Zoom Control */}
-                <div className="leaflet-bottom leaflet-right" style={{ marginBottom: '130px' }}>
-                     <div className="leaflet-control-zoom leaflet-bar leaflet-control">
-                          <a className="leaflet-control-zoom-in" href="#" title="Zoom in" role="button" aria-label="Zoom in">+</a>
-                          <a className="leaflet-control-zoom-out" href="#" title="Zoom out" role="button" aria-label="Zoom out">−</a>
-                     </div>
-                </div>
             </MapContainer>
         </div>
     );
