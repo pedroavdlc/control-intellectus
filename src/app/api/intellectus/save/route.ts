@@ -4,7 +4,7 @@ import path from 'path';
 import * as xlsx from 'xlsx';
 import { prisma } from '@/lib/prisma';
 
-const BASE_STORAGE = "C:\\Users\\SO\\Videos\\archivos wed intellectus";
+const BASE_STORAGE = process.env.STORAGE_BASE || path.join(process.cwd(), 'storage');
 const FILE_CONTROL = "CONTROL DE GEOS Y SABANAS.xlsx";
 const FILE_REPORT = "Formato Reporte consumo mensual Intellectus MARZO - ABRIL.xlsx";
 

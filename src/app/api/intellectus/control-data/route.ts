@@ -95,3 +95,44 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, message: error.message }, { status: 500 });
     }
 }
+
+export async function PATCH(req: NextRequest) {
+    try {
+        const { id, result, folio } = await req.json();
+        const { prisma } = await import('@/lib/prisma');
+        
+        if (!id || !result) {
+            return NextResponse.json({ success: false, message: 'Faltan datos requeridos (id, result).' }, { status: 400 });
+        }
+
+        const dataToUpdate: any = { result: result };
+        if (folio !== undefined) {
+             dataToUpdate.folio = folio;
+        }
+
+        const updated = await (prisma as any).consultation.update({
+            where: { id: id },
+            data: dataToUpdate
+        });
+
+        // Parse to match frontend model
+        const parsed = {
+            id: updated.id,
+            'Núm. prog.': updated.numProg || 0,
+            'folio': updated.folio || '',
+            'Teléfono': updated.phone || '',
+            'Fecha consulta': updated.date || '',
+            'Realizó la consulta': updated.author || '',
+            'Compañía': updated.company || '',
+            'Tipo de consulta': updated.type || '',
+            'Area solicitante': updated.area || '',
+            'Resultado\r\n(POS / NEG)': updated.result || '',
+            'Ubicación Archivo': updated.filePath || ''
+        };
+
+        return NextResponse.json({ success: true, data: parsed });
+    } catch (error: any) {
+        console.error('[ControlData] Update Error:', error);
+        return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    }
+}

@@ -106,6 +106,7 @@ export default function Timeline({ points, activeIndex, onSelect, showAll, onTog
             {validPoints.map((pt, i) => {
                const pos = getPosition(pt.pd.timestamp, i);
                const isActive = !showAll && i === activeIndex;
+               const isNeg = pt.lat === 0 && pt.lng === 0;
                
                return (
                   <div 
@@ -115,14 +116,14 @@ export default function Timeline({ points, activeIndex, onSelect, showAll, onTog
                     onClick={() => goTo(i)}
                   >
                       {/* Active State Indicator line */}
-                      {isActive && <div className="absolute w-[2px] h-full bg-blue-500 shadow-[0_0_12px_#3b82f6] z-0"></div>}
+                      {isActive && <div className={`absolute w-[2px] h-full z-0 ${isNeg ? 'bg-red-500 shadow-[0_0_12px_#ef4444]' : 'bg-blue-500 shadow-[0_0_12px_#3b82f6]'}`}></div>}
                       
                       {/* Interactive Marker Block mimicking screenshot thick rectangular sliders */}
-                      <div className={`w-3.5 h-8 rounded-sm ${isActive ? 'bg-blue-500' : 'bg-zinc-600 group-hover:bg-zinc-400'} border border-[#09090b] shadow-md transition-colors z-10`} />
+                      <div className={`w-3.5 h-8 rounded-sm ${isActive ? (isNeg ? 'bg-red-500' : 'bg-blue-500') : (isNeg ? 'bg-red-900 group-hover:bg-red-700' : 'bg-zinc-600 group-hover:bg-zinc-400')} border border-[#09090b] shadow-md transition-colors z-10`} />
                       
                       {/* Tooltip / Label directly next to marker */}
                       <div className={`absolute -top-7 whitespace-nowrap z-20 px-2 py-0.5 rounded shadow-lg backdrop-blur-md transition-opacity pointer-events-none 
-                                    ${isActive ? 'opacity-100 bg-blue-500/20 text-blue-300 border border-blue-500/50' : 'opacity-0 group-hover:opacity-100 bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
+                                    ${isActive ? (isNeg ? 'opacity-100 bg-red-500/20 text-red-300 border border-red-500/50' : 'opacity-100 bg-blue-500/20 text-blue-300 border border-blue-500/50') : (isNeg ? 'opacity-0 group-hover:opacity-100 bg-red-950/80 text-red-300 border border-red-900/50' : 'opacity-0 group-hover:opacity-100 bg-zinc-800 text-zinc-300 border border-zinc-700')}`}>
                           <p className="text-[9px] font-mono font-bold leading-tight">{pt.pd.time}</p>
                           <p className="text-[7px] uppercase tracking-widest leading-tight opacity-70">{pt.pd.date}</p>
                       </div>
@@ -143,7 +144,9 @@ export default function Timeline({ points, activeIndex, onSelect, showAll, onTog
                    </div>
                    <div className="flex flex-col">
                        <span className="text-[9px] font-mono text-zinc-300">{active.pd.date} {active.pd.time}</span>
-                       <span className="text-[8px] text-zinc-500 truncate max-w-[150px] uppercase font-bold">{active.address}</span>
+                       <span className={`text-[8px] truncate max-w-[150px] uppercase font-bold ${active.lat === 0 && active.lng === 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                           {active.lat === 0 && active.lng === 0 ? 'SIN UBICACIÓN (NEGATIVO)' : active.address}
+                       </span>
                    </div>
                  </div>
               )}

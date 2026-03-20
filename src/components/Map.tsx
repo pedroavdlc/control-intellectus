@@ -6,11 +6,13 @@ import {
     TileLayer,
     Marker,
     Popup,
+    Tooltip,
     Circle,
     Polygon,
     Polyline,
     LayersControl,
-    useMap
+    useMap,
+    useMapEvents
 } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
@@ -37,7 +39,15 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function createSectorPoints(clat: number, clng: number, az: number, r: number, hw: number = 60): [number, number][] {
+function createSectorPoints(clatRaw: number, clngRaw: number, azRaw: number, rRaw: number, hwRaw: number = 60): [number, number][] {
+    const clat = Number(clatRaw);
+    const clng = Number(clngRaw);
+    const az = Number(azRaw);
+    const r = Number(rRaw);
+    const hw = Number(hwRaw);
+
+    if (isNaN(clat) || isNaN(clng) || isNaN(az) || isNaN(r)) return [[0,0]];
+
     const points: [number, number][] = [[clat, clng]];
     const latF = 1 / 111111;
     const lngF = 1 / (111111 * Math.cos(clat * Math.PI / 180));
@@ -65,17 +75,35 @@ const InfrastructureIcon = L.divIcon({
     className: '', iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12]
 });
 
+// ─── Child Components ───
+function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
+    const map = useMapEvents({
+        zoomend: () => onZoomChange(map.getZoom()),
+    });
+    useEffect(() => {
+        onZoomChange(map.getZoom());
+    }, [map, onZoomChange]);
+    return null;
+}
+
 // ─── Main Component ───
 export default function Map(props: any) {
-    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, antennaSectors = [], extraMarkers = [] } = props;
+    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, antennaSectors = [], extraMarkers = [], onMarkerClick } = props;
     const [mounted, setMounted] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const [mapId] = useState(() => `map-${Date.now()}-${Math.random()}`);
+    const [currentZoom, setCurrentZoom] = useState(zoom || 11);
 
     useEffect(() => {
         setMounted(true);
         return () => {
-             setMounted(false);
-             if (containerRef.current) containerRef.current.innerHTML = '';
+            try {
+                const container = document.getElementById('intellectus-map-container') as any;
+                if (container && container._leaflet_id) {
+                    container._leaflet_id = null;
+                }
+            } catch (e) {
+                // ignore
+            }
         };
     }, []);
 
@@ -88,11 +116,43 @@ export default function Map(props: any) {
     if (!mounted) return <div className="w-full h-full bg-slate-900/50 animate-pulse rounded-3xl" style={{ minHeight: 500 }} />;
 
     return (
-        <div ref={containerRef} className="w-full h-full relative z-0">
-            <style>{`@keyframes leaflet-ping { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.8); opacity: 0; } } .leaflet-marker-icon { background: none !important; border: none !important; }`}</style>
+        <div className="w-full h-full relative z-0" key={mapId}>
+            <style>{`
+                @keyframes leaflet-ping { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.8); opacity: 0; } }
+                .leaflet-marker-icon { background: none !important; border: none !important; }
+                .leaflet-tooltip.leaflet-intel-tooltip-wrapper {
+                    background-color: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    font-family: inherit !important;
+                }
+                .leaflet-tooltip.leaflet-intel-tooltip-wrapper::before,
+                .leaflet-tooltip.leaflet-intel-tooltip-wrapper::after { 
+                    display: none !important; 
+                }
+                
+                .intel-tooltip-inner {
+                    background: rgba(9,9,11,0.92);
+                    border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 8px;
+                    color: #e2e8f0;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    padding: 4px 8px;
+                    white-space: nowrap;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+                    transition: all 0.2s ease;
+                    display: inline-block;
+                }
+                .intel-tooltip-inner.small { font-size: 8px; padding: 2px 6px; }
+                .intel-tooltip-inner.micro { font-size: 6px; padding: 1px 4px; opacity: 0.8; }
+                .intel-tooltip-inner.nano { font-size: 4px; padding: 1px 2px; opacity: 0.5; color: transparent; }
+            `}</style>
             
             <MapContainer 
-                id="main-map-container"
+                id="intellectus-map-container"
                 center={center} 
                 zoom={zoom} 
                 scrollWheelZoom={true} 
@@ -100,6 +160,7 @@ export default function Map(props: any) {
                 style={{ height: '100%', width: '100%' }}
                 className="z-0"
             >
+                <ZoomTracker onZoomChange={setCurrentZoom} />
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer name="OpenStreetMap" checked>
                         <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -141,7 +202,26 @@ export default function Map(props: any) {
                     return (
                         <React.Fragment key={m.id}>
                             {m.radius && <Circle center={[m.lat, m.lng]} radius={m.radius} pathOptions={{ color, fillColor: color, fillOpacity: isViewed ? 0.12 : 0.08, weight: isViewed ? 2 : 1, dashArray: isViewed ? undefined : '5, 5' }} />}
-                            <Marker position={[m.lat, m.lng]} icon={DeviceIcon(color)} zIndexOffset={isViewed ? 1000 : 500} />
+                            <Marker
+                                position={[m.lat, m.lng]}
+                                icon={DeviceIcon(color)}
+                                zIndexOffset={isViewed ? 1000 : 500}
+                                eventHandlers={onMarkerClick ? { click: () => onMarkerClick(m) } : undefined}
+                            >
+                                {m.label && (
+                                    <Tooltip 
+                                      permanent={true} 
+                                      direction="top" 
+                                      offset={[0, currentZoom >= 8 ? -14 : -5]} 
+                                      opacity={1}
+                                      className="leaflet-intel-tooltip-wrapper"
+                                    >
+                                        <div className={`intel-tooltip-inner ${currentZoom < 5 ? 'nano' : currentZoom < 7 ? 'micro' : currentZoom < 9 ? 'small' : ''}`}>
+                                            {m.label}
+                                        </div>
+                                    </Tooltip>
+                                )}
+                            </Marker>
                         </React.Fragment>
                     );
                 })}

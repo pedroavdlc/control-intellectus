@@ -21,7 +21,11 @@ import {
   Download,
   X,
   PlusCircle,
-  Upload as UploadIcon
+  Upload as UploadIcon,
+  CheckCircle2,
+  AlertCircle,
+  XCircle,
+  FolderOpen
 } from 'lucide-react';
 import { MapMarker } from '@/types/map';
 import Sidebar from '@/components/Sidebar';
@@ -57,6 +61,12 @@ export default function Dashboard() {
   const [lastActivity, setLastActivity] = useState<number>(Date.now());
   const [sidebarMode, setSidebarMode] = useState<'MSISDN' | 'LOCATION'>('MSISDN');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'warning' | 'error'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'warning' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles) => {
@@ -257,7 +267,7 @@ export default function Dashboard() {
       if (phone !== selectedPhone && !viewedPoint) return;
       
       const lastPoint = history[phone] && history[phone].length > 0 ? history[phone][0] : null;
-      if (!lastPoint) return;
+      if (!lastPoint || (lastPoint.lat === 0 && lastPoint.lng === 0)) return;
 
       allMarkers.push({
         id: `dev-${phone}`,
@@ -335,15 +345,28 @@ export default function Dashboard() {
     const markers = points
       .filter(p => typeof p.lat === 'number' && !isNaN(p.lat) && p.lat !== 0 &&
                    typeof p.lng === 'number' && !isNaN(p.lng) && p.lng !== 0)
-      .map((point, idx) => ({
-        id: `all-${idx}`,
-        lat: point.lat,
-        lng: point.lng,
-        label: point.date ? String(point.date) : `Punto ${idx + 1}`,
-        radius: point.radius ? Number(point.radius) : 300, // 300m fallback
-        type: 'device' as const,
-        antennaSector: point.antennaSector || null
-      }));
+      .map((point, idx) => {
+        let sec = point.antennaSector || null;
+        if (sec && typeof sec === 'string') {
+          try { sec = JSON.parse(sec); } catch (e) { sec = null; }
+        }
+        if (sec && point.radius != null) {
+          const pRad = Number(point.radius);
+          const sRange = Number(sec.range);
+          if (!isNaN(pRad) && !isNaN(sRange)) {
+            sec = { ...sec, range: Math.min(sRange, pRad) };
+          }
+        }
+        return {
+          id: `all-${idx}`,
+          lat: point.lat,
+          lng: point.lng,
+          label: point.date ? String(point.date) : `Punto ${idx + 1}`,
+          radius: point.radius ? Number(point.radius) : 300, 
+          type: 'device' as const,
+          antennaSector: sec
+        };
+      });
 
     console.log(`[showAll] Rendering ${markers.length} markers for ${selectedPhone}`);
     return markers;
@@ -473,11 +496,11 @@ export default function Dashboard() {
         setIsModalOpen(true);
       } else {
         const errorData = await response.json();
-        alert(`Error al procesar el archivo: ${errorData.details || errorData.error || 'Desconocido'}`);
+        showToast(`Error al procesar el archivo: ${errorData.details || errorData.error || 'Desconocido'}`, 'error');
       }
     } catch (error: any) {
       console.error('Error processing file:', error);
-      alert(`Error de conexión: ${error.message}`);
+      showToast(`Error de conexión: ${error.message}`, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -540,9 +563,9 @@ export default function Dashboard() {
     const saveResult = await saveRes.json();
     if (saveResult.success) {
         if (saveResult.excelSaved) {
-            alert(`✅ Registro guardado con éxito en Excel (Folio: ${saveResult.numProg})`);
+            showToast(`Registro guardado con éxito en Excel (Folio: ${saveResult.numProg})`, 'success');
         } else {
-            alert(`⚠️ Datos guardados localmente, pero NO se pudo escribir en el Excel Maestro (probablemente está abierto). Por favor registre manualmente o intente procesar de nuevo con el Excel cerrado.`);
+            showToast(`⚠️ Datos guardados localmente, pero NO se pudo escribir en el Excel Maestro. Por favor registre manualmente o intente procesar de nuevo con el Excel cerrado.`, 'warning');
         }
     }
 
@@ -622,54 +645,90 @@ export default function Dashboard() {
                     .map(phone => {
                       const isActive = selectedPhone === phone;
                       return (
-                        <button key={phone} onClick={() => { 
+                        <div key={phone} onClick={() => { 
                               setSelectedPhone(phone); 
                               setActiveTimelineIndex(0); 
                               if (history[phone] && history[phone].length > 0) {
                                   setShowAll(false);
                                   const recent = history[phone][0];
-                                  setViewedPoint([recent.lat, recent.lng]);
-                                  setDeviceCenter([recent.lat, recent.lng]);
-                                  setCameraFlyTo([recent.lat, recent.lng]);
+                                  if (recent.lat !== 0 && recent.lng !== 0) {
+                                      setViewedPoint([recent.lat, recent.lng]);
+                                      setDeviceCenter([recent.lat, recent.lng]);
+                                      setCameraFlyTo([recent.lat, recent.lng]);
+                                      
+                                      let rawSec = recent.antennaSector || null;
+                                      if (rawSec && typeof rawSec === 'string') {
+                                          try { rawSec = JSON.parse(rawSec); } catch (e) { rawSec = null; }
+                                      }
+                                      if (rawSec && recent.radius != null) {
+                                          const pRad = Number(recent.radius);
+                                          const sRange = Number(rawSec.range);
+                                          setAntennaSector({ ...rawSec, range: (!isNaN(sRange) && !isNaN(pRad)) ? Math.min(sRange, pRad) : sRange || pRad || 400 });
+                                      } else {
+                                          setAntennaSector(rawSec);
+                                      }
+                                  } else {
+                                      setViewedPoint(null);
+                                      setAntennaSector(null);
+                                  }
                               } else {
                                   setShowAll(true);
                                   setViewedPoint(null);
+                                  setAntennaSector(null);
                               }
                               resetActivity();
                             }} 
-                            className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group border flex flex-col gap-1.5 ${isActive ? 'bg-blue-600 text-white border-blue-400 shadow-[0_10px_30px_rgba(37,99,235,0.3)] scale-[1.02] z-10' : 'bg-zinc-900/40 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:border-white/10'}`}
+                            className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group border flex flex-col gap-1.5 ${isActive ? (history[phone][0]?.lat === 0 && history[phone][0]?.lng === 0 ? 'bg-red-600 text-white border-red-400 shadow-[0_10px_30px_rgba(220,38,38,0.3)] scale-[1.02] z-10' : 'bg-blue-600 text-white border-blue-400 shadow-[0_10px_30px_rgba(37,99,235,0.3)] scale-[1.02] z-10') : (history[phone][0]?.lat === 0 && history[phone][0]?.lng === 0 ? 'bg-red-950/20 text-red-400/80 border-red-900/30 hover:bg-red-900/30 hover:border-red-500/50' : 'bg-zinc-900/40 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:border-white/10')}`}
                           >
                           <div className="flex items-center justify-between pointer-events-none">
                             <span className={`text-[11px] font-black tracking-widest ${isActive ? 'text-blue-100' : 'text-zinc-500 group-hover:text-blue-400'}`}>MSISDN</span>
-                            <span className={`text-[10px] font-bold ${isActive ? 'text-blue-200/60' : 'text-zinc-600'}`}>{history[phone].length} pts</span>
+                            <span className={`text-[10px] font-bold ${isActive ? 'opacity-60' : 'text-zinc-600'}`}>{history[phone].length} pts</span>
                           </div>
                           <div className="flex items-center gap-3 pointer-events-none">
-                            <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white shadow-[0_0_8px_#fff]' : 'bg-blue-500'}`} />
+                            <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white shadow-[0_0_8px_#fff]' : (history[phone][0]?.lat === 0 && history[phone][0]?.lng === 0 ? 'bg-red-500' : 'bg-blue-500')}`} />
                             <span className="text-sm font-black tracking-tight font-mono">{phone}</span>
                           </div>
-                          <p className={`text-[9px] font-bold uppercase tracking-wider mt-1 pointer-events-none ${isActive ? 'text-blue-100/50' : 'text-zinc-600'}`}>
-                            {history[phone][0]?.company || 'Carrier Unknown'} • {history[phone][0]?.date.split(' ')[0]}
+                          <p className={`text-[9px] font-bold uppercase tracking-wider mt-1 pointer-events-none ${isActive ? 'opacity-70' : (history[phone][0]?.lat === 0 && history[phone][0]?.lng === 0 ? 'text-red-500/80' : 'text-zinc-600')}`}>
+                            {(history[phone][0]?.lat === 0 && history[phone][0]?.lng === 0) ? 'SIN UBICACIÓN (Negativo)' : (history[phone][0]?.company || 'Carrier Unknown')} • {history[phone][0]?.date.split(' ')[0]}
                           </p>
-                        </button>
+                          {/* Botón abrir carpeta */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fetch(`/api/intellectus/open-folder?phone=${phone}`);
+                            }}
+                            title="Abrir carpeta en el Explorador"
+                            className="mt-1 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white self-start"
+                          >
+                            <FolderOpen size={10} /> Ver carpeta
+                          </button>
+                        </div>
                       );
                     })
              ) : (
                 // LOCATIONS MODE: Show points directly
-                Object.keys(history).flatMap(k => history[k]).slice(0, 50).map((pt, i) => (
-                    <button key={`loc-${i}`} onClick={() => {
-                        setSelectedPhone(pt.phone || '');
-                        setViewedPoint([pt.lat, pt.lng]);
-                        setDeviceCenter([pt.lat, pt.lng]);
-                        setCameraFlyTo([pt.lat, pt.lng]);
-                        resetActivity();
-                    }} className="w-full text-left p-3 rounded-xl bg-zinc-900/20 border border-white/5 hover:bg-zinc-800 transition-all flex flex-col gap-1">
-                        <div className="flex justify-between items-center">
-                            <span className="text-[8px] font-bold text-blue-400 uppercase">{pt.phone}</span>
-                            <span className="text-[7px] text-zinc-600 font-mono">{pt.date}</span>
-                        </div>
-                        <span className="text-[10px] text-zinc-300 truncate font-medium">{pt.address || 'Location Point'}</span>
-                    </button>
-                ))
+                Object.keys(history).flatMap(k => history[k]).slice(0, 50).map((pt, i) => {
+                    const isNeg = pt.lat === 0 && pt.lng === 0;
+                    return (
+                        <button key={`loc-${i}`} onClick={() => {
+                            setSelectedPhone(pt.phone || '');
+                            if (!isNeg) {
+                                setViewedPoint([pt.lat, pt.lng]);
+                                setDeviceCenter([pt.lat, pt.lng]);
+                                setCameraFlyTo([pt.lat, pt.lng]);
+                            } else {
+                                setViewedPoint(null);
+                            }
+                            resetActivity();
+                        }} className={`w-full text-left p-3 rounded-xl transition-all flex flex-col gap-1 border ${isNeg ? 'bg-red-950/20 hover:bg-red-950/40 border-red-900/30' : 'bg-zinc-900/20 hover:bg-zinc-800 border-white/5'}`}>
+                            <div className="flex justify-between items-center">
+                                <span className={`text-[8px] font-bold uppercase ${isNeg ? 'text-red-400' : 'text-blue-400'}`}>{pt.phone}</span>
+                                <span className={`text-[7px] font-mono ${isNeg ? 'text-red-500/70' : 'text-zinc-600'}`}>{pt.date}</span>
+                            </div>
+                            <span className={`text-[10px] truncate font-medium ${isNeg ? 'text-red-300' : 'text-zinc-300'}`}>{isNeg ? 'SIN UBICACIÓN (Negativo)' : (pt.address || 'Location Point')}</span>
+                        </button>
+                    );
+                })
              )}
         </div>
         
@@ -791,9 +850,25 @@ export default function Dashboard() {
                   onSelect={(idx, point) => {
                     setActiveTimelineIndex(idx);
                     setShowAll(false);
-                    setViewedPoint([point.lat, point.lng]);
-                    setDeviceCenter([point.lat, point.lng]);
-                    setAntennaSector(point.antennaSector || null);
+                    if (point.lat !== 0 && point.lng !== 0) {
+                        setViewedPoint([point.lat, point.lng]);
+                        setDeviceCenter([point.lat, point.lng]);
+                        // Cap sector range to match the circle radius so the wedge fits inside
+                        let rawSec = point.antennaSector || null;
+                        if (rawSec && typeof rawSec === 'string') {
+                            try { rawSec = JSON.parse(rawSec); } catch (e) { rawSec = null; }
+                        }
+                        if (rawSec && point.radius != null) {
+                            const pRad = Number(point.radius);
+                            const sRange = Number(rawSec.range);
+                            setAntennaSector({ ...rawSec, range: (!isNaN(sRange) && !isNaN(pRad)) ? Math.min(sRange, pRad) : sRange || pRad || 400 });
+                        } else {
+                            setAntennaSector(rawSec);
+                        }
+                    } else {
+                        setViewedPoint(null);
+                        setAntennaSector(null);
+                    }
                     resetActivity();
                   }}
                   onViewPDF={(fileId) => window.open(`/api/files/${fileId}`, '_blank')}
@@ -815,6 +890,22 @@ export default function Dashboard() {
         onClose={() => { setIsModalOpen(false); setModalData({}); }} 
         onSave={handleSaveModal} 
       />
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-6 right-6 z-[9999] animate-in slide-in-from-right fade-in duration-300">
+          <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl ${
+            toast.type === 'success' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' :
+            toast.type === 'warning' ? 'bg-amber-500/20 border-amber-500/30 text-amber-400' :
+            'bg-rose-500/20 border-rose-500/30 text-rose-400'
+          }`}>
+             {toast.type === 'success' && <CheckCircle2 size={24} />}
+             {toast.type === 'warning' && <AlertCircle size={24} />}
+             {toast.type === 'error' && <XCircle size={24} />}
+             <p className="font-bold text-xs uppercase tracking-widest">{toast.message}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 

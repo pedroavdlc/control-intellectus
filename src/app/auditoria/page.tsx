@@ -18,6 +18,37 @@ export default function AuditoriaPage() {
     const [data, setData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
+    const [editingItem, setEditingItem] = useState<any>(null);
+    const [editResult, setEditResult] = useState("");
+    const [editFolio, setEditFolio] = useState("");
+    const [isSaving, setIsSaving] = useState(false);
+    const [filterStatus, setFilterStatus] = useState("PENDIENTE");
+    const [filterType, setFilterType] = useState("TODOS"); // TODOS, GEO, SABANA
+
+    const handleSaveStatus = async () => {
+        if (!editingItem) return;
+        setIsSaving(true);
+        try {
+            const res = await fetch('/api/intellectus/control-data', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: editingItem.id, result: editResult, folio: editFolio })
+            });
+            const json = await res.json();
+            if (json.success) {
+                setData(prev => prev.map(row => row.id === editingItem.id ? { ...row, 'Resultado\r\n(POS / NEG)': editResult, 'Resultado': editResult, 'folio': editFolio } : row));
+                setEditingItem(null);
+            } else {
+                alert('Error al guardar: ' + json.message);
+            }
+        } catch(e) {
+            console.error(e);
+            alert('Error de red saving data');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     useEffect(() => {
         async function fetchControlData() {
             try {
@@ -85,13 +116,31 @@ export default function AuditoriaPage() {
         return Array.from(map.values()).sort((a, b) => b.totalRequests - a.totalRequests);
     }, [data]);
 
-    // Filtrar los que están pendientes globalmente
-    const pendientesList = useMemo(() => {
+    // Filtrar los registros según el estado y tipo seleccionados
+    const filteredList = useMemo(() => {
         return data.filter(row => {
             const res = String(row['Resultado\r\n(POS / NEG)'] || row['Resultado'] || '').toUpperCase();
-            return res.includes('PENDIENTE') || res.trim() === ''; // Incluir vacíos como pendientes
-        }).reverse(); // Los más recientes primero
-    }, [data]);
+            const typeVal = String(row['Tipo de consulta'] || '').toUpperCase();
+            
+            if (filterType !== "TODOS" && !typeVal.includes(filterType)) return false;
+
+            if (filterStatus === "TODO") return true;
+            if (filterStatus === "PENDIENTE") return res.includes(filterStatus) || res.trim() === '';
+            return res.includes(filterStatus);
+        }).reverse();
+    }, [data, filterStatus, filterType]);
+
+    // Calcular estilos dinámicos del panel de lista
+    const listPanelStyles = useMemo(() => {
+        switch(filterStatus) {
+            case 'POSITIVO': return { bg: 'bg-emerald-950/10 border-emerald-500/20', headerColor: 'text-emerald-500', icon: CheckCircle2, tagBg: 'bg-emerald-500/20', tagText: 'text-emerald-400', tagBorder: 'border-emerald-500/30' };
+            case 'NEGATIVO': return { bg: 'bg-rose-950/10 border-rose-500/20', headerColor: 'text-rose-500', icon: XCircle, tagBg: 'bg-rose-500/20', tagText: 'text-rose-400', tagBorder: 'border-rose-500/30' };
+            case 'RECHAZADO': return { bg: 'bg-amber-950/10 border-amber-500/20', headerColor: 'text-amber-500', icon: AlertCircle, tagBg: 'bg-amber-500/20', tagText: 'text-amber-400', tagBorder: 'border-amber-500/30' };
+            case 'TODO': return { bg: 'bg-blue-950/10 border-blue-500/20', headerColor: 'text-blue-500', icon: Activity, tagBg: 'bg-blue-500/20', tagText: 'text-blue-400', tagBorder: 'border-blue-500/30' };
+            default: return { bg: 'bg-rose-950/10 border-rose-500/20', headerColor: 'text-rose-500', icon: ShieldAlert, tagBg: 'bg-rose-500/20', tagText: 'text-rose-400', tagBorder: 'border-rose-500/30' };
+        }
+    }, [filterStatus]);
+    const PanelIcon = listPanelStyles.icon;
 
     if (isLoading) {
         return <div className="h-full w-full flex items-center justify-center bg-zinc-950 text-slate-500">Cargando datos de auditoría...</div>;
@@ -134,21 +183,54 @@ export default function AuditoriaPage() {
                     </div>
                 </div>
 
-                <div className="lg:col-span-2 glass p-6 rounded-3xl border border-rose-500/20 bg-rose-950/10 flex flex-col h-[400px]">
-                    <div className="flex justify-between items-center mb-6 shrink-0">
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-rose-500 flex items-center gap-2">
-                            <ShieldAlert size={16} /> Atención Requerida ({pendientesList.length})
+                <div className={`lg:col-span-2 glass p-6 rounded-3xl border flex flex-col h-[400px] transition-colors duration-500 ${listPanelStyles.bg}`}>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 shrink-0 gap-4">
+                        <h3 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors duration-500 ${listPanelStyles.headerColor}`}>
+                            <PanelIcon size={16} /> Registro Operativo ({filteredList.length})
                         </h3>
-                        <span className="px-3 py-1 bg-rose-500/20 text-rose-400 text-[10px] font-black uppercase rounded-full border border-rose-500/30">
-                            Trabajos Pendientes
-                        </span>
+                        
+                        <div className="flex flex-wrap gap-2">
+                            <select 
+                                value={filterType}
+                                onChange={(e) => setFilterType(e.target.value)}
+                                className={`px-3 py-1.5 text-[10px] font-black uppercase rounded-full outline-none cursor-pointer appearance-none text-center transition-colors duration-500 bg-zinc-900/40 text-slate-300 border border-white/5 hover:border-white/20`}
+                                style={{ textAlignLast: 'center' }}
+                            >
+                                <option className="bg-zinc-900 text-white" value="TODOS">Tipo: Ambos</option>
+                                <option className="bg-zinc-900 text-white" value="GEO">Solo GEO</option>
+                                <option className="bg-zinc-900 text-white" value="SABANA">Solo SÁBANA</option>
+                            </select>
+
+                            <select 
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className={`px-3 py-1.5 text-[10px] font-black uppercase rounded-full outline-none cursor-pointer appearance-none text-center transition-colors duration-500 ${listPanelStyles.tagBg} ${listPanelStyles.tagText} border ${listPanelStyles.tagBorder}`}
+                                style={{ textAlignLast: 'center' }}
+                            >
+                                <option className="bg-zinc-900 text-white" value="PENDIENTE">Filtrar: Pendientes</option>
+                                <option className="bg-zinc-900 text-white" value="POSITIVO">Filtrar: Positivos</option>
+                                <option className="bg-zinc-900 text-white" value="NEGATIVO">Filtrar: Negativos</option>
+                                <option className="bg-zinc-900 text-white" value="RECHAZADO">Filtrar: Rechazados</option>
+                                <option className="bg-zinc-900 text-white" value="TODO">Mostrar: Todos</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto no-scrollbar space-y-3 pr-2">
-                        {pendientesList.length > 0 ? pendientesList.map((row, i) => (
-                            <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-zinc-900/60 border border-white/5 hover:bg-zinc-800 transition-colors">
+                        {filteredList.length > 0 ? filteredList.map((row, i) => {
+                            const res = String(row['Resultado\r\n(POS / NEG)'] || row['Resultado'] || 'PENDIENTE').toUpperCase();
+                            const DotColor = res.includes('POS') ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : res.includes('NEG') ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' : res.includes('RECHAZADO') ? 'bg-amber-500 shadow-[0_0_8px_#f59e0b]' : 'bg-rose-500 animate-pulse';
+
+                            return (
+                            <div key={i} 
+                                 onClick={() => {
+                                     setEditingItem(row);
+                                     setEditResult(res);
+                                     setEditFolio(row['folio'] || '');
+                                 }}
+                                 className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-zinc-900/60 border border-white/5 hover:bg-zinc-800 hover:border-blue-500/40 transition-colors cursor-pointer group">
                                 <div className="flex items-center gap-4">
-                                    <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${DotColor}`} />
                                     <div className="flex flex-col">
                                         <p className="text-sm font-black text-white mb-0.5 max-w-[200px] truncate" title={row['Teléfono'] || row['folio']}>
                                             {row['Teléfono']} {row['folio'] && `(${row['folio']})`}
@@ -167,7 +249,7 @@ export default function AuditoriaPage() {
                                     </span>
                                 </div>
                             </div>
-                        )) : (
+                        )}) : (
                             <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-2 opacity-50">
                                 <CheckCircle2 size={32} />
                                 <p className="text-xs uppercase font-bold tracking-widest">Sistema Limpio. Nada Pendiente.</p>
@@ -231,6 +313,59 @@ export default function AuditoriaPage() {
                     ))}
                 </div>
             </div>
+
+            {/* Modal de Edición de Resultado */}
+            {editingItem && (
+                <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-zinc-950 border border-white/10 rounded-3xl w-full max-w-md p-6 flex flex-col gap-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+                        <div>
+                            <h3 className="text-xl font-black text-white uppercase tracking-widest">{editingItem['Teléfono'] || 'Trabajo'}</h3>
+                            <p className="text-xs text-zinc-400 font-bold mt-1 uppercase">Actualizar Requerimiento</p>
+                        </div>
+
+                        <div className="flex flex-col gap-3">
+                            <label className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Nombre / Identificador (Opcional)</label>
+                            <input 
+                                type="text"
+                                value={editFolio} 
+                                onChange={(e) => setEditFolio(e.target.value)}
+                                placeholder="Ej. Juan Pérez, Caso Alfa..."
+                                className="w-full bg-zinc-900 border border-white/10 rounded-xl p-4 text-sm tracking-widest text-white outline-none focus:border-blue-500 transition-colors font-bold"
+                            />
+                        </div>
+                        
+                        <div className="flex flex-col gap-3">
+                            <label className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Nuevo Resultado</label>
+                            <select 
+                                value={editResult} 
+                                onChange={(e) => setEditResult(e.target.value)}
+                                className="w-full bg-zinc-900 border border-white/10 rounded-xl p-4 text-sm tracking-widest text-white outline-none focus:border-blue-500 transition-colors font-bold appearance-none cursor-pointer"
+                            >
+                                <option value="PENDIENTE">⏳ PENDIENTE (En Trámite)</option>
+                                <option value="POSITIVO">✅ POSITIVO (Hallazgo Confirmado)</option>
+                                <option value="NEGATIVO">❌ NEGATIVO (Sin Información / Fuera de Rango)</option>
+                                <option value="RECHAZADO">🚫 RECHAZADO (Datos Inválidos)</option>
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-4 border-t border-white/5 mt-2">
+                            <button 
+                                onClick={() => setEditingItem(null)}
+                                className="flex-1 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs tracking-widest uppercase font-bold transition-all border border-white/5"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={handleSaveStatus}
+                                disabled={isSaving}
+                                className="flex-1 p-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs tracking-widest uppercase font-black transition-all disabled:opacity-50 border border-blue-400/20 shadow-lg shadow-blue-500/20"
+                            >
+                                {isSaving ? 'Aplicando...' : 'Aplicar Cambio'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
         </div>
     );

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { MapMarker, LocationPoint } from '@/types/map';
-import { Maximize, Navigation, Filter, Compass, AlertTriangle, Users, X, Edit3, Radio } from 'lucide-react';
+import { Maximize, Navigation, Filter, Compass, AlertTriangle, Users, X, Edit3, Radio, Phone, CalendarDays, ChevronDown, ChevronUp } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), {
     ssr: false,
@@ -23,6 +23,7 @@ export default function GeoPage() {
     const [aliases, setAliases] = useState<Record<string, string>>({});
     const [showAliasPanel, setShowAliasPanel] = useState(false);
     const [focusPoint, setFocusPoint] = useState<[number, number] | null>(null);
+    const [clickedSector, setClickedSector] = useState<any>(null);
     const [showCollisionSectors, setShowCollisionSectors] = useState(false);
 
     useEffect(() => {
@@ -62,10 +63,11 @@ export default function GeoPage() {
                         id: p.id + phone,
                         lat: p.lat,
                         lng: p.lng,
-                        label: `${displayName} • ${p.date.split(' ')[0]}`,
+                        label: `${displayName} • ${p.date?.split(' ')[0] || ''}`,
                         phone: phone,
-                        radius: 100 // Smaller radius to avoid clutter
-                    });
+                        radius: 100,
+                        antennaSector: p.antennaSector ? (typeof p.antennaSector === 'string' ? JSON.parse(p.antennaSector) : p.antennaSector) : null
+                    } as any);
                 }
             });
         });
@@ -113,9 +115,8 @@ export default function GeoPage() {
 
     const mapCenter = useMemo(() => {
         if (focusPoint) return focusPoint;
-        if (markers.length > 0) return [markers[0].lat, markers[0].lng] as [number, number];
-        return [19.4326, -99.1332] as [number, number];
-    }, [markers, focusPoint]);
+        return [19.4326, -99.1332] as [number, number]; // Default CDMX
+    }, [focusPoint]);
 
     const activeSectors = useMemo(() => {
         if (!showCollisionSectors) return [];
@@ -224,10 +225,22 @@ export default function GeoPage() {
                         <Map 
                           markers={markers} 
                           center={mapCenter} 
-                          zoom={collisions.length > 0 ? 14 : 11} 
+                          zoom={focusPoint ? 16 : (collisions.length > 0 ? 14 : 11)} 
                           targetCenter={focusPoint} 
-                          cameraFlyTo={focusPoint} 
+                          cameraFlyTo={focusPoint}
+                          antennaSector={clickedSector}
                           antennaSectors={activeSectors}
+                          onMarkerClick={(m: any) => {
+                              if (m.antennaSector) {
+                                  const mRad = Number(m.radius);
+                                  const sRange = Number(m.antennaSector.range);
+                                  const sec = (m.radius != null && !isNaN(mRad)) ? { ...m.antennaSector, range: Math.min(sRange, mRad) } : m.antennaSector;
+                                  setClickedSector((prev: any) => prev && JSON.stringify(prev) === JSON.stringify(sec) ? null : sec);
+                              } else {
+                                  setClickedSector(null);
+                              }
+                              setFocusPoint([m.lat, m.lng]);
+                          }}
                         />
                     </div>
 
