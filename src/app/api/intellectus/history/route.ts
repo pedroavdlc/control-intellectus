@@ -57,7 +57,23 @@ export async function GET(req: NextRequest) {
             );
         });
 
-        return NextResponse.json({ success: true, history, providers });
+        // Fetch unique lists for autocomplete
+        const uniqueAuthors = await prisma.consultation.findMany({ select: { author: true }, distinct: ['author'] });
+        const uniqueAreas = await prisma.consultation.findMany({ select: { area: true }, distinct: ['area'] });
+        const uniqueCompanies = await prisma.consultation.findMany({ select: { company: true }, distinct: ['company'] });
+
+        const authors = uniqueAuthors.map(a => a.author).filter(Boolean).sort();
+        const areas = uniqueAreas.map(a => a.area).filter(Boolean).sort();
+        const companies = uniqueCompanies.map(a => a.company).filter(Boolean).sort();
+
+        return NextResponse.json({ 
+            success: true, 
+            history, 
+            providers,
+            authors: authors as string[],
+            areas: areas as string[],
+            companies: companies as string[]
+        });
     } catch (error: any) {
         console.error('Error loading database history:', error);
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });

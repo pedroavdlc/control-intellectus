@@ -99,6 +99,11 @@ export default function Dashboard() {
   const [antennaSector, setAntennaSector] = useState<{ lat: number; lng: number; azimuth: number; range: number; widthDeg: number; azimuthSource: string } | null>(null);
   const [showAll, setShowAll] = useState(false); // show all history points on map simultaneously
 
+  // Lists for autocomplete in ControlModal
+  const [knownAuthors, setKnownAuthors] = useState<string[]>([]);
+  const [knownAreas, setKnownAreas] = useState<string[]>([]);
+  const [knownCompanies, setKnownCompanies] = useState<string[]>([]);
+
   // Stable string key from viewedPoint to use in useEffect deps (avoids array-size-change error)
   const viewedKey = viewedPoint ? `${viewedPoint[0]},${viewedPoint[1]}` : 'null';
 
@@ -116,6 +121,9 @@ export default function Dashboard() {
         if (result.success && result.history) {
           setHistory(result.history);
           if (result.providers) setProviders(result.providers);
+          if (result.authors) setKnownAuthors(result.authors);
+          if (result.areas) setKnownAreas(result.areas);
+          if (result.companies) setKnownCompanies(result.companies);
         }
       } catch (e) {
         console.error('Failed to load history:', e);
@@ -889,6 +897,9 @@ export default function Dashboard() {
         knownProviders={providers}
         onClose={() => { setIsModalOpen(false); setModalData({}); }} 
         onSave={handleSaveModal} 
+        authorsList={knownAuthors}
+        areasList={knownAreas}
+        companiesList={knownCompanies}
       />
 
       {/* Toast Notification */}
