@@ -23,9 +23,21 @@ interface ControlModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave: (data: ControlEntry) => void;
+    authorsList?: string[];
+    areasList?: string[];
+    companiesList?: string[];
 }
 
-export default function ControlModal({ initialData = {}, knownProviders = {}, isOpen, onClose, onSave }: ControlModalProps) {
+export default function ControlModal({ 
+    initialData = {}, 
+    knownProviders = {}, 
+    isOpen, 
+    onClose, 
+    onSave,
+    authorsList = [],
+    areasList = [],
+    companiesList = []
+}: ControlModalProps) {
     const [formData, setFormData] = useState<ControlEntry>({
         numProg: 0,
         date: new Date().toLocaleString('es-MX', {
@@ -84,13 +96,10 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                 }
             }
 
-            // Load unique lists for autocomplete
-            const savedAuthors = JSON.parse(localStorage.getItem('intellectus_authors_list') || '[]');
-            const savedAreas = JSON.parse(localStorage.getItem('intellectus_areas_list') || '[]');
-            const savedCompanies = JSON.parse(localStorage.getItem('intellectus_companies_list') || '[]');
-            setAuthors(savedAuthors);
-            setAreas(savedAreas);
-            setCompanies(savedCompanies);
+            // Sync with props
+            setAuthors(authorsList);
+            setAreas(areasList);
+            setCompanies(companiesList);
 
             const phone = initialData.phone || '';
             const rawPhone = phone.replace(/\D/g, '');
@@ -105,12 +114,12 @@ export default function ControlModal({ initialData = {}, knownProviders = {}, is
                 company: company,
                 result: (initialData.result as any) || (initialData.type === 'Sabana' ? 'Pendiente' : 'Negativo'),
                 folio: initialData.folio || '',
-                date: initialData.date || prev.date, // Use report date if available
+                date: initialData.date || prev.date, 
                 type: (initialData.type as any) || 'GEO',
                 phone: initialData.phone || ''
             }));
         }
-    }, [initialData, isOpen, knownProviders]);
+    }, [initialData, isOpen, knownProviders, authorsList, areasList, companiesList]);
 
     // Auto-sync Folio and Phone
     useEffect(() => {

@@ -14,7 +14,8 @@ export async function POST(req: NextRequest) {
         }
 
         const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        // Prevent 'detached ArrayBuffer' Next.js 15 / Node 20 bug by slicing the buffer
+        const buffer = Buffer.from(arrayBuffer.slice(0));
 
         console.log('[PDF API] File received, size:', buffer.length);
 
