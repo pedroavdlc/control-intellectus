@@ -24,18 +24,33 @@ pause >nul
 
 echo.
 echo ========================================================
+
+set "NPM_CMD=npm"
+set "NPX_CMD=npx"
+where npm >nul 2>nul
+if %errorlevel% neq 0 (
+    if exist "C:\Program Files\nodejs\npm.cmd" (
+        set "NPM_CMD=C:\Program Files\nodejs\npm.cmd"
+        set "NPX_CMD=C:\Program Files\nodejs\npx.cmd"
+    ) else (
+        echo ERROR: Node.js no esta en la ruta y no se encontro en el disco C.
+        pause
+        exit /b
+    )
+)
+
 echo [1/3] Instalando dependencias...
 cd /d "%PROGRAM_DIR%"
-call npm install
+call "%NPM_CMD%" install
 
 echo.
 echo [2/3] Configurando base de datos...
-call npx prisma generate
-call npx prisma db push
+call "%NPX_CMD%" prisma generate
+call "%NPX_CMD%" prisma db push
 
 echo.
 echo [3/3] Compilando el programa...
-call npm run build
+call "%NPM_CMD%" run build
 
 echo.
 echo ========================================================

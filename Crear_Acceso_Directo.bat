@@ -9,9 +9,9 @@ set "SCRIPT_DIR=%~dp0"
 set "SHORTCUT_PATH=%USERPROFILE%\Desktop\Abrir Intellectus.lnk"
 
 :: Usar PowerShell para crear un acceso directo compatible con la barra de tareas
-powershell -Command "$wshell = New-Object -ComObject WScript.Shell; $shortcut = $wshell.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%SCRIPT_DIR%iniciar.bat\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.IconLocation = 'shell32.dll,13'; $shortcut.Save()"
+powershell -Command "$wshell = New-Object -ComObject WScript.Shell; $shortcut = $wshell.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'wscript.exe'; $shortcut.Arguments = '\"\"%SCRIPT_DIR%IntellectusLauncher.vbs\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.IconLocation = 'shell32.dll,13'; $shortcut.Save()"
 
-echo ¡Listo! Se ha creado un icono llamado "Abrir Intellectus" en tu Escritorio.
+echo ¡Listo! Se ha creado un icono llamado "Abrir Intellectus" en tu Escritorio ocultando la ventana negra.
 echo.
 echo Ahora solo ve a tu Escritorio, hazle click derecho al icono y dale a "Anclar a la barra de tareas".
 echo.
