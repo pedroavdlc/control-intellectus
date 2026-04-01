@@ -57,14 +57,44 @@ export async function GET(req: NextRequest) {
             );
         });
 
-        // Fetch unique lists for autocomplete
-        const uniqueAuthors = await prisma.consultation.findMany({ select: { author: true }, distinct: ['author'] });
-        const uniqueAreas = await prisma.consultation.findMany({ select: { area: true }, distinct: ['area'] });
-        const uniqueCompanies = await prisma.consultation.findMany({ select: { company: true }, distinct: ['company'] });
+        // Fetch unique lists for autocomplete ordered by recency
+        // Focus on most recent consultations first to extract authors/areas/companies
+        const recentConsultations = await prisma.consultation.findMany({
+            orderBy: { createdAt: 'desc' },
+            select: { author: true, area: true, company: true, type: true }
+        });
 
-        const authors = uniqueAuthors.map(a => a.author).filter(Boolean).sort();
-        const areas = uniqueAreas.map(a => a.area).filter(Boolean).sort();
-        const companies = uniqueCompanies.map(a => a.company).filter(Boolean).sort();
+        // Helper to get unique values in order of appearance
+        const getUniqueOrdered = (list: any[], key: string, geoPriority = false) => {
+            const seen = new Set();
+            const result: string[] = [];
+            
+            // First pass: GEOS if priority is requested
+            if (geoPriority) {
+                list.forEach(item => {
+                    const val = item[key];
+                    if (val && item.type === 'GEO' && !seen.has(val)) {
+                        seen.add(val);
+                        result.push(val);
+                    }
+                });
+            }
+
+            // Second pass (or first if no priority): Everything else
+            list.forEach(item => {
+                const val = item[key];
+                if (val && !seen.has(val)) {
+                    seen.add(val);
+                    result.push(val);
+                }
+            });
+            return result;
+        };
+
+        const authors = getUniqueOrdered(recentConsultations, 'author', true);
+        const areas = getUniqueOrdered(recentConsultations, 'area');
+        const companies = getUniqueOrdered(recentConsultations, 'company');
+
 
         return NextResponse.json({ 
             success: true, 

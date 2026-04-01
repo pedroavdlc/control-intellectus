@@ -483,7 +483,10 @@ function Input({ icon: Icon, label, value, onChange, type = "text", list, option
 function AuthorAutocomplete({ value, onChange, options, onFocus, onBlur, onAddNew }: any) {
     const [focused, setFocused] = useState(false);
     
-    const filtered = options.filter((o: string) => o.toLowerCase().includes(value.toLowerCase()));
+    // Maintain the original order for empty state, filter for text state
+    const filtered = value.trim() 
+        ? options.filter((o: string) => o.toLowerCase().includes(value.toLowerCase()))
+        : options;
 
     return (
         <div className="space-y-2 relative">
@@ -503,26 +506,55 @@ function AuthorAutocomplete({ value, onChange, options, onFocus, onBlur, onAddNe
             </div>
             
             {focused && (
-                <div className="absolute top-[100%] left-0 right-0 mt-2 z-50 bg-slate-800 border border-indigo-500/30 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in slide-in-from-top-2">
-                    <div className="max-h-48 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                        {filtered.length > 0 ? filtered.map((opt: string, idx: number) => (
-                            <button
-                                key={idx}
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => { onChange(opt); setFocused(false); }}
-                                className="w-full text-left px-4 py-2 text-[11px] font-bold text-slate-300 hover:text-white hover:bg-indigo-500/30 rounded-xl transition-all uppercase flex items-center justify-between group/btn"
-                            >
-                                <span>{opt}</span>
-                                {idx === 0 && <span className="text-[9px] text-indigo-400/50 group-hover/btn:text-indigo-300">Reciente</span>}
-                            </button>
-                        )) : (
-                            <p className="text-[10px] text-slate-500 text-center py-4 font-bold uppercase tracking-widest">No hay resultados</p>
+                <div className="absolute top-[100%] left-0 right-0 mt-2 z-50 bg-slate-950 border border-indigo-500/30 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300 backdrop-blur-xl">
+                    <div className="p-3 border-b border-white/5 bg-slate-900/60 flex items-center justify-between">
+                        <span className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] px-2 italic">
+                            {!value.trim() ? "Agentes Recientes" : "Coincidencias"}
+                        </span>
+                        <Clock size={12} className="text-indigo-500/50" />
+                    </div>
+                    <div className="max-h-60 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                        {filtered.length > 0 ? (
+                            <>
+                                {filtered.map((opt: string, idx: number) => {
+                                    // Tag the first 3 as recent if they are from the original ordered list
+                                    const isHighlight = idx < 3 && !value.trim();
+                                    return (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => { onChange(opt); setFocused(false); }}
+                                            className={`w-full text-left px-4 py-3 text-[11px] font-black rounded-2xl transition-all uppercase flex items-center justify-between group/btn ${
+                                                isHighlight ? "bg-indigo-500/5 text-slate-200 border border-indigo-500/10 hover:bg-indigo-500/20" : "text-slate-400 hover:text-white hover:bg-white/5"
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-1.5 h-1.5 rounded-full ${isHighlight ? "bg-indigo-500 animate-pulse" : "bg-slate-700"}`} />
+                                                <span>{opt}</span>
+                                            </div>
+                                            {isHighlight && (
+                                                <span className="text-[8px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-lg border border-indigo-500/20 shadow-sm">RECIENTE</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </>
+                        ) : (
+                            <div className="py-8 flex flex-col items-center justify-center gap-3 text-slate-500">
+                                <AlertCircle size={24} className="opacity-20" />
+                                <p className="text-[10px] font-black uppercase tracking-widest italic">Sin Coincidencias</p>
+                            </div>
                         )}
                     </div>
-                    <div className="p-2 border-t border-white/10 bg-slate-900/80">
-                        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onAddNew(); setFocused(false); }} className="w-full py-3 bg-indigo-500/10 hover:bg-indigo-500/20 hover:scale-[0.98] text-indigo-400 hover:text-indigo-300 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-inner">
-                            <UserPlus size={14} /> Crear Nuevo Agente
+                    <div className="p-3 border-t border-white/5 bg-slate-900/60">
+                        <button 
+                            type="button" 
+                            onMouseDown={(e) => e.preventDefault()} 
+                            onClick={() => { onAddNew(); setFocused(false); }} 
+                            className="w-full py-3 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 border border-indigo-500/20 hover:border-indigo-400"
+                        >
+                            <UserPlus size={14} /> Registrar Nuevo Agente
                         </button>
                     </div>
                 </div>
