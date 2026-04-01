@@ -88,7 +88,7 @@ function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
 
 // ─── Main Component ───
 export default function Map(props: any) {
-    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, antennaSectors = [], extraMarkers = [], onMarkerClick } = props;
+    const { markers, towerMarkers = [], showTowers, center, zoom, geoCompany, targetCenter, towerRange, cameraFlyTo, antennaSector, antennaSectors = [], extraMarkers = [], viewedPoint, onMarkerClick } = props;
     const [mounted, setMounted] = useState(false);
     const [mapId] = useState(() => `map-${Date.now()}-${Math.random()}`);
     const [currentZoom, setCurrentZoom] = useState(zoom || 11);
@@ -238,33 +238,53 @@ export default function Map(props: any) {
                     );
                 })()}
 
-                {antennaSectors?.map((sec: any, idx: number) => {
-                    if (!sec) return null;
-                    const hw = (sec.widthDeg ?? 120) / 2;
-                    const pts = createSectorPoints(sec.lat, sec.lng, sec.azimuth, sec.range, hw);
-                    const isConf = sec.azimuthSource === 'opencellid';
-                    return (
-                        <React.Fragment key={`sec-${idx}`}>
-                            <Circle center={[sec.lat, sec.lng]} radius={sec.range} pathOptions={{ color: '#ef4444', fillOpacity: 0, weight: 1, dashArray: '6 4' }} />
-                            <Polygon positions={pts} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: isConf ? 0.3 : 0.18, weight: 2, dashArray: isConf ? undefined : '8 4' }} />
-                        </React.Fragment>
-                    );
-                })}
+                {extraMarkers.length > 1 && <Polyline positions={extraMarkers.map((m: any) => [m.lat, m.lng])} pathOptions={{ color: '#06b6d4', weight: 4, dashArray: '10, 15', opacity: 0.5 }} />}
 
-                {extraMarkers.length > 1 && <Polyline positions={extraMarkers.map((m: any) => [m.lat, m.lng])} pathOptions={{ color: '#06b6d4', weight: 3, dashArray: '8, 12', opacity: 0.6 }} />}
+                <MarkerClusterGroup iconCreateFunction={ClusterIcon} maxClusterRadius={35} chunkedLoading={true}>
+                    {extraMarkers.map((m: any, idx: number) => {
+                        const isRecent = idx === 0;
+                        // Check if this point matches the current viewed point to show its 'calza'
+                        const isViewed = viewedPoint && viewedPoint[0] === m.lat && viewedPoint[1] === m.lng;
+                        const color = isRecent ? '#6366f1' : (isViewed ? '#818cf8' : '#22d3ee');
+                        const sector = m.antennaSector;
+                        
+                        // Show sector/circle if it's the most recent one OR the one being viewed/selected
+                        const showDetails = isRecent || isViewed || extraMarkers.length === 1;
 
-                {extraMarkers.map((m: any, idx: number) => {
-                    const isRecent = idx === 0;
-                    const color = isRecent ? '#6366f1' : '#22d3ee';
-                    const sector = m.antennaSector;
-                    return (
-                        <React.Fragment key={`ex-${idx}`}>
-                            {sector && <Polygon positions={createSectorPoints(sector.lat, sector.lng, sector.azimuth, sector.range, (sector.widthDeg || 120) / 2)} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: isRecent ? 0.25 : 0.12, weight: 1, dashArray: '4 4' }} />}
-                            {m.radius && <Circle center={[m.lat, m.lng]} radius={Number(m.radius)} pathOptions={{ color, fillColor: color, fillOpacity: isRecent ? 0.22 : 0.15, weight: 1.5 }} />}
-                            <Marker position={[m.lat, m.lng]} icon={DeviceIcon(color)} />
-                        </React.Fragment>
-                    );
-                })}
+                        return (
+                            <React.Fragment key={`ex-${idx}`}>
+                                {showDetails && sector && (
+                                    <Polygon 
+                                        positions={createSectorPoints(sector.lat, sector.lng, sector.azimuth, sector.range, (sector.widthDeg || 120) / 2)} 
+                                        pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: isViewed ? 0.35 : 0.2, weight: 1.5, dashArray: '4 4' }} 
+                                    />
+                                )}
+                                {showDetails && m.radius && (
+                                    <Circle 
+                                        center={[m.lat, m.lng]} 
+                                        radius={Number(m.radius)} 
+                                        pathOptions={{ color, fillColor: color, fillOpacity: isViewed ? 0.25 : 0.15, weight: 2 }} 
+                                    />
+                                )}
+                                <Marker 
+                                    position={[m.lat, m.lng]} 
+                                    icon={DeviceIcon(color)}
+                                    eventHandlers={{
+                                        click: () => onMarkerClick && onMarkerClick(m)
+                                    }}
+                                >
+                                    <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="leaflet-intel-tooltip-wrapper" permanent={isViewed}>
+                                        <div className={`intel-tooltip-inner ${isViewed ? 'border-indigo-400' : 'small'}`}>
+                                            {m.label} {isViewed ? ' (Seleccionado)' : ''}
+                                        </div>
+                                    </Tooltip>
+                                </Marker>
+                            </React.Fragment>
+                        );
+                    })}
+                </MarkerClusterGroup>
+
+
 
                 <MapController center={center} zoom={zoom} flyTo={cameraFlyTo} flyToZoom={18} />
             </MapContainer>

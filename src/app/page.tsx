@@ -812,12 +812,39 @@ export default function Dashboard() {
                   showTowers={showTowers}
                   center={center}
                   zoom={viewedPoint ? 17 : 3}
+                  viewedPoint={viewedPoint}
                   geoCompany={geoCompany}
                   targetCenter={deviceCenter || center}
                   towerRange={towerRange}
                   cameraFlyTo={cameraFlyTo}
                   antennaSector={antennaSector}
                   extraMarkers={showAll ? allPointsMarkers : []}
+                  onMarkerClick={(m: any) => {
+                    if (!selectedPhone || !history[selectedPhone]) return;
+                    const idx = history[selectedPhone].findIndex(p => p.lat === m.lat && p.lng === m.lng);
+                    if (idx !== -1) {
+                      // Trigger the same logic as timeline selection
+                      const point = history[selectedPhone][idx];
+                      setActiveTimelineIndex(idx);
+                      // Don't turn off showAll because user is navigating within history
+                      if (point.lat !== 0 && point.lng !== 0) {
+                        setViewedPoint([point.lat, point.lng]);
+                        setDeviceCenter([point.lat, point.lng]);
+                        let rawSec = point.antennaSector || null;
+                        if (rawSec && typeof rawSec === 'string') {
+                            try { rawSec = JSON.parse(rawSec); } catch (e) { rawSec = null; }
+                        }
+                        if (rawSec && point.radius != null) {
+                            const pRad = Number(point.radius);
+                            const sRange = Number(rawSec.range);
+                            setAntennaSector({ ...rawSec, range: (!isNaN(sRange) && !isNaN(pRad)) ? Math.min(sRange, pRad) : sRange || pRad || 400 });
+                        } else {
+                            setAntennaSector(rawSec);
+                        }
+                      }
+                      resetActivity();
+                    }
+                  }}
                />
             </div>
             
