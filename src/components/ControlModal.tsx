@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, X, User, MapPin, Phone, Hash, Database, CheckCircle2, AlertCircle, ExternalLink, Activity, Loader2, Clock } from 'lucide-react';
+import { Save, X, User, MapPin, Phone, Hash, Database, CheckCircle2, AlertCircle, ExternalLink, Activity, Loader2, Clock, Lock, UserPlus } from 'lucide-react';
+import UserRegistrationModal from './UserRegistrationModal';
 
 interface ControlEntry {
     numProg: number;
@@ -70,6 +71,11 @@ export default function ControlModal({
 
     const [isSaving, setIsSaving] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [password, setPassword] = useState('');
+    const [dbUsers, setDbUsers] = useState<any[]>([]);
+    const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
+    const [pendingAuthor, setPendingAuthor] = useState('');
+    const [passwordError, setPasswordError] = useState('');
 
     // Helper to normalize phone numbers for lookup
     const normalizePhone = (p: string) => {
@@ -88,6 +94,21 @@ export default function ControlModal({
             const savedAuthor = localStorage.getItem('intellectus_agent') || '';
             const savedArea = localStorage.getItem('intellectus_area') || '';
             const creditString = localStorage.getItem('intellectus_credits');
+            
+            setPassword('');
+            setPasswordError('');
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    if (Array.isArray(data)) {
+                        setDbUsers(data);
+                    }
+                })
+                .catch(err => console.error("Could not fetch users: ", err));
+            
+            // authorsList comes from localStorage, already ordered recent-first
+            // We ensure we don't sort alphabetically anymore so recency is preserved.
+                
             let savedCredits = 1000;
             if (creditString) {
                 const parsed = parseInt(creditString);
@@ -142,13 +163,57 @@ export default function ControlModal({
 
     if (!isOpen) return null;
 
-    const handleSave = async () => {
+    const attemptSave = async () => {
+        const currentAuthor = formData.author.toUpperCase().trim();
+        if (!currentAuthor) {
+            setPasswordError('Ingresa un autor primero.');
+            return;
+        }
+
+        const isKnown = dbUsers.some(u => u.username === currentAuthor);
+
+        if (!isKnown) {
+            setPendingAuthor(currentAuthor);
+            setIsRegistrationModalOpen(true);
+            return;
+        }
+
+        if (!password) {
+            setPasswordError('La contraseña es obligatoria.');
+            return;
+        }
+
+        setPasswordError('');
+        setIsSaving(true);
+
+        try {
+            const res = await fetch('/api/users/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentAuthor, password })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                setPasswordError(data.error || 'Contraseña incorrecta.');
+                setIsSaving(false);
+                return;
+            }
+
+            executeSave(currentAuthor);
+        } catch (e) {
+            setPasswordError('Error al verificar.');
+            setIsSaving(false);
+        }
+    };
+
+    const executeSave = async (verifiedAuthor: string) => {
         setIsSaving(true);
 
         // Convert everything to UPPERCASE before saving
         const finalData: ControlEntry = {
             ...formData,
-            author: formData.author.toUpperCase().trim(),
+            author: verifiedAuthor,
             company: formData.company.toUpperCase().trim(),
             area: formData.area.toUpperCase().trim(),
             folio: formData.folio.toUpperCase().trim(),
@@ -161,17 +226,17 @@ export default function ControlModal({
         localStorage.setItem('intellectus_area', finalData.area);
         localStorage.setItem('intellectus_credits', (finalData.creditsAvailable - finalData.creditsApplied).toString());
 
-        // Update autocomplete lists (UPPERCASE and Unique)
+        // Update autocomplete lists (UPPERCASE and Unique) - Insert latest at the beginning for recency
         if (finalData.author) {
-            const updatedAuthors = Array.from(new Set([...authors, finalData.author])).sort();
+            const updatedAuthors = Array.from(new Set([finalData.author, ...authors]));
             localStorage.setItem('intellectus_authors_list', JSON.stringify(updatedAuthors));
         }
         if (finalData.area) {
-            const updatedAreas = Array.from(new Set([...areas, finalData.area])).sort();
+            const updatedAreas = Array.from(new Set([finalData.area, ...areas]));
             localStorage.setItem('intellectus_areas_list', JSON.stringify(updatedAreas));
         }
         if (finalData.company) {
-            const updatedCompanies = Array.from(new Set([...companies, finalData.company])).sort();
+            const updatedCompanies = Array.from(new Set([finalData.company, ...companies]));
             localStorage.setItem('intellectus_companies_list', JSON.stringify(updatedCompanies));
         }
 
@@ -227,14 +292,31 @@ export default function ControlModal({
                             value={formData.phone} 
                             onChange={(v: string) => setFormData({ ...formData, phone: v, folio: v })} 
                         />
-                        <Input
-                            icon={User}
-                            label="Realizó la consulta"
+                        <AuthorAutocomplete
                             value={formData.author}
-                            onChange={(v: string) => setFormData({ ...formData, author: v })}
-                            list="authors-list"
-                            options={authors}
+                            onChange={(v: string) => { setFormData({ ...formData, author: v }); setPasswordError(''); }}
+                            options={Array.from(new Set([...authors, ...dbUsers.map(u => u.username)]))}
+                            onAddNew={() => { setPendingAuthor(''); setIsRegistrationModalOpen(true); }}
                         />
+                        <div className="space-y-1">
+                            <Input
+                                icon={Lock}
+                                type="password"
+                                label={
+                                    !formData.author.trim() ? "Contraseña" :
+                                    dbUsers.some(u => u.username === formData.author.toUpperCase().trim()) ? "Firma Autorizada" : "Nuevo Usuario"
+                                }
+                                value={password}
+                                onChange={(v: string) => { setPassword(v); setPasswordError(''); }}
+                                placeholder={
+                                    !formData.author.trim() ? "..." :
+                                    dbUsers.some(u => u.username === formData.author.toUpperCase().trim()) ? "Ingresa tu contraseña" : "Se pedirá crear contraseña al guardar"
+                                }
+                            />
+                            {passwordError && (
+                                <p className="text-xs font-bold text-rose-400 px-1 animate-in slide-in-from-top-1">{passwordError}</p>
+                            )}
+                        </div>
                         <Input
                             icon={MapPin}
                             label="Área Solicitante"
@@ -348,12 +430,26 @@ export default function ControlModal({
 
                 <div className="p-8 border-t border-white/5 bg-slate-900/20 flex gap-4">
                     <button onClick={onClose} className="flex-1 py-4 rounded-3xl text-sm font-bold text-slate-400 hover:bg-white/5 transition-all">Cancelar</button>
-                    <button onClick={handleSave} disabled={isSaving} className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-3xl flex items-center justify-center gap-3 shadow-xl shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50">
+                    <button onClick={attemptSave} disabled={isSaving} className="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-3xl flex items-center justify-center gap-3 shadow-xl shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50">
                         {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
                         <span>Guardar Registro</span>
                     </button>
                 </div>
             </div>
+
+            <UserRegistrationModal 
+                isOpen={isRegistrationModalOpen}
+                initialUsername={pendingAuthor}
+                onClose={() => setIsRegistrationModalOpen(false)}
+                onSuccess={(newUser, createdPwd) => {
+                    setIsRegistrationModalOpen(false);
+                    setDbUsers(prev => [...prev, newUser]);
+                    setPassword(createdPwd);
+                    setFormData(prev => ({ ...prev, author: newUser.username }));
+                    // Execute save cleanly using the guaranteed verified author
+                    executeSave(newUser.username);
+                }}
+            />
         </div>
     );
 }
@@ -373,13 +469,64 @@ function Input({ icon: Icon, label, value, onChange, type = "text", list, option
                     onChange={e => onChange(e.target.value)}
                 />
                 {list && options && (
-                    <datalist id={list}>
+                    <datalist id={list} key={`${list}-${options.length}`}>
                         {options.map((opt: string) => (
                             <option key={opt} value={opt} />
                         ))}
                     </datalist>
                 )}
             </div>
+        </div>
+    );
+}
+
+function AuthorAutocomplete({ value, onChange, options, onFocus, onBlur, onAddNew }: any) {
+    const [focused, setFocused] = useState(false);
+    
+    const filtered = options.filter((o: string) => o.toLowerCase().includes(value.toLowerCase()));
+
+    return (
+        <div className="space-y-2 relative">
+            <p className="text-[10px] font-bold text-slate-600 uppercase px-1">Realizó la consulta</p>
+            <div className="relative group">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={16} />
+                <input
+                    className="w-full bg-slate-900 border border-white/5 rounded-2xl py-3 pl-12 pr-6 text-sm text-white focus:outline-none focus:border-indigo-500/50 transition-all font-sans uppercase font-bold"
+                    value={value}
+                    placeholder="Busca o escribe un nombre"
+                    onChange={e => onChange(e.target.value)}
+                    onFocus={(e) => { setFocused(true); if(onFocus) onFocus(e); }}
+                    onBlur={(e) => {
+                        setTimeout(() => { setFocused(false); if(onBlur) onBlur(e); }, 150);
+                    }}
+                />
+            </div>
+            
+            {focused && (
+                <div className="absolute top-[100%] left-0 right-0 mt-2 z-50 bg-slate-800 border border-indigo-500/30 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    <div className="max-h-48 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                        {filtered.length > 0 ? filtered.map((opt: string, idx: number) => (
+                            <button
+                                key={idx}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => { onChange(opt); setFocused(false); }}
+                                className="w-full text-left px-4 py-2 text-[11px] font-bold text-slate-300 hover:text-white hover:bg-indigo-500/30 rounded-xl transition-all uppercase flex items-center justify-between group/btn"
+                            >
+                                <span>{opt}</span>
+                                {idx === 0 && <span className="text-[9px] text-indigo-400/50 group-hover/btn:text-indigo-300">Reciente</span>}
+                            </button>
+                        )) : (
+                            <p className="text-[10px] text-slate-500 text-center py-4 font-bold uppercase tracking-widest">No hay resultados</p>
+                        )}
+                    </div>
+                    <div className="p-2 border-t border-white/10 bg-slate-900/80">
+                        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onAddNew(); setFocused(false); }} className="w-full py-3 bg-indigo-500/10 hover:bg-indigo-500/20 hover:scale-[0.98] text-indigo-400 hover:text-indigo-300 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-inner">
+                            <UserPlus size={14} /> Crear Nuevo Agente
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
